@@ -1,222 +1,269 @@
-# Water Rate Dynamic Sensor Template
-# This sensor calculates dynamic water rates based on tiered pricing structure
-# and includes summer surcharge logic for accurate billing calculations.
-
+# Generalized Home Assistant sensor for marginal water rate per sensor's usage unit (e.g., $/gallon, $/litre, $/cubic_feet, $/cubic_meter)
+# Handles: any input unit, billing in CCF or CM, tiers, summer surcharge, maintenance charge, and debug output.
 template:
   - sensor:
-      - name: "Water Rate Dynamic"
-        unique_id: water_rate_dynamic
-        unit_of_measurement: "$/gallon"
-        device_class: monetary
-        state_class: measurement
-        icon: mdi:water-circle
+      - name: "Current Water Rate per Usage Unit"
+        unique_id: current_water_rate_per_usage_unit
         state: >
-          {% set usage = states('sensor.water_usage_gallons') | float(0) %}
-          {% set is_summer = now().month >= 5 and now().month <= 9 %}
-          
-          {# Tiered pricing structure - rates per gallon #}
-          {% set tier1_max = 3000 %}
-          {% set tier1_rate = 0.0035 %}
-          
-          {% set tier2_max = 8000 %}
-          {% set tier2_rate = 0.0045 %}
-          
-          {% set tier3_max = 15000 %}
-          {% set tier3_rate = 0.0055 %}
-          
-          {# Last tier set to very high max value to handle all usage levels #}
-          {% set tier4_max = 999999999 %}
-          {% set tier4_rate = 0.0075 %}
-          
-          {# Summer surcharge bands - additional charges during summer months #}
-          {% set summer_band1_max = 5000 %}
-          {% set summer_band1_surcharge = 0.001 %}
-          
-          {% set summer_band2_max = 12000 %}
-          {% set summer_band2_surcharge = 0.0015 %}
-          
-          {# Final summer band set to very high max value to ensure all usage is covered #}
-          {% set summer_band3_max = 999999999 %}
-          {% set summer_band3_surcharge = 0.002 %}
-          
-          {# Calculate base rate based on tiered structure #}
-          {% if usage <= tier1_max %}
-            {% set base_rate = tier1_rate %}
-          {% elif usage <= tier2_max %}
-            {% set base_rate = tier2_rate %}
-          {% elif usage <= tier3_max %}
-            {% set base_rate = tier3_rate %}
-          {% else %}
-            {% set base_rate = tier4_rate %}
-          {% endif %}
-          
-          {# Calculate summer surcharge if applicable #}
-          {% set summer_surcharge = 0 %}
-          {% if is_summer %}
-            {% if usage <= summer_band1_max %}
-              {% set summer_surcharge = summer_band1_surcharge %}
-            {% elif usage <= summer_band2_max %}
-              {% set summer_surcharge = summer_band2_surcharge %}
-            {% else %}
-              {% set summer_surcharge = summer_band3_surcharge %}
-            {% endif %}
-          {% endif %}
-          
-          {# Final rate calculation #}
-          {{ (base_rate + summer_surcharge) | round(6) }}
-        
+          {# --- USER CONFIG --- #}
+          {%- set raw_value = states('sensor.droplet_water_volume') | float(0) -%}
+          {%- set usage_unit = 'gallons' -%}    {# e.g., 'gallons', 'litres', 'cubic_feet', 'cubic_meters', 'CCF', 'CM' #}
+          {%- set rate_unit = 'CCF' -%}         {# 'CCF' (Centum Cubic Feet) or 'CM' (Cubic Meter) #}
+          {%- set summer_months = [6,7,8,9] -%} {# June=6 ... September=9 #}
+          {%- set is_summer = now().month in summer_months -%}
+          {%- set maintenance_base = 6 -%}      {# in CCF or CM #}
+          {%- set maintenance_rate = 9.97 -%}
+          {%- set tiers = [
+            {'min': 0,   'max': 10,   'rate': 6.11},
+            {'min': 10,  'max': 20,   'rate': 10.34},
+            {'min': 20,  'max': 30,   'rate': 12.41},
+            {'min': 30,  'max': 999999999, 'rate': 16.69}
+          ] -%}
+          {%- set summer_surcharge = [
+            {'min': 20, 'max': 30, 'rate': 0.10},
+            {'min': 30, 'max': 999999999, 'rate': 0.30}
+          ] -%}
+          {%- set debug_mode = false -%}
+          {# --- CONVERSION TABLE --- #}
+          {%- set convert = {
+            'gallons':      {'CCF': 0.00133681, 'CM': 0.00378541},
+            'litres':       {'CCF': 0.000353147, 'CM': 0.001},
+            'cubic_feet':   {'CCF': 0.01, 'CM': 0.0283168},
+            'cubic_meters': {'CCF': 0.353147, 'CM': 1.0},
+            'CCF':          {'CCF': 1.0, 'CM': 2.83168},
+            'CM':           {'CCF': 0.353147, 'CM': 1.0}
+          } -%}
+          {%- if usage_unit not in convert or rate_unit not in convert[usage_unit] -%}
+            {{ 0 }}
+          {%- else -%}
+            {%- set usage_billing = raw_value * convert[usage_unit][rate_unit] -%}
+            {# Use namespace for tier and label #}
+            {%- set ns = namespace(tier_rate=0, tier_label='unknown') %}
+            {%- for t in tiers %}
+              {%- if usage_billing >= t.min and usage_billing < t.max %}
+                {%- set ns.tier_rate = t.rate %}
+                {%- set ns.tier_label = 'Tier ' ~ loop.index %}
+              {%- endif %}
+            {%- endfor %}
+            {# Summer surcharge using namespace #}
+            {%- set ns_s = namespace(surcharge=0) %}
+            {%- if is_summer %}
+              {%- for s in summer_surcharge %}
+                {%- if usage_billing >= s.min and usage_billing < s.max %}
+                  {%- set ns_s.surcharge = s.rate %}
+                {%- endif %}
+              {%- endfor %}
+            {%- endif %}
+            {# Maintenance charge if at/above base #}
+            {%- set maintenance = maintenance_rate if usage_billing >= maintenance_base else 0 -%}
+            {%- set marginal_rate = ns.tier_rate + ns_s.surcharge + maintenance %}
+            {# --- CONVERT MARGINAL RATE TO USAGE UNIT --- #}
+            {%- set billing_to_usage = {
+              ('CCF', 'gallons'): 748.051,
+              ('CCF', 'litres'): 2831.68,
+              ('CCF', 'cubic_feet'): 100,
+              ('CCF', 'cubic_meters'): 2.83168,
+              ('CM', 'gallons'): 264.172,
+              ('CM', 'litres'): 1000,
+              ('CM', 'cubic_feet'): 35.3147,
+              ('CM', 'cubic_meters'): 1,
+              ('CCF', 'CCF'): 1,
+              ('CM', 'CM'): 1
+            } %}
+            {%- set units_per_billing = billing_to_usage.get((rate_unit, usage_unit), 1) %}
+            {%- set rate_per_usage = marginal_rate / units_per_billing if units_per_billing > 0 else 0 %}
+            {%- if debug_mode %}
+              {{ {
+                'raw_value': raw_value,
+                'usage_unit': usage_unit,
+                'rate_unit': rate_unit,
+                'usage_in_billing_unit': usage_billing,
+                'season': 'summer' if is_summer else 'winter',
+                'current_tier': ns.tier_label,
+                'tier_rate': ns.tier_rate,
+                'surcharge': ns_s.surcharge,
+                'maintenance': maintenance,
+                'marginal_rate': marginal_rate,
+                'units_per_billing': units_per_billing,
+                'rate_per_usage': rate_per_usage
+              } | to_json }}
+            {%- else %}
+              {{ rate_per_usage | round(8) }}
+            {%- endif %}
+          {%- endif %}
+        unit_of_measurement: >
+          $/{{ usage_unit }}
         attributes:
-          usage_gallons: >
-            {{ states('sensor.water_usage_gallons') | float(0) }}
-          
+          marginal_rate_in_billing_unit: >
+            {%- set raw_value = states('sensor.droplet_water_volume') | float(0) -%}
+            {%- set usage_unit = 'gallons' -%}
+            {%- set rate_unit = 'CCF' -%}
+            {%- set summer_months = [6,7,8,9] -%}
+            {%- set is_summer = now().month in summer_months -%}
+            {%- set maintenance_base = 6 -%}
+            {%- set maintenance_rate = 9.97 -%}
+            {%- set tiers = [
+              {'min': 0,   'max': 10,   'rate': 6.11},
+              {'min': 10,  'max': 20,   'rate': 10.34},
+              {'min': 20,  'max': 30,   'rate': 12.41},
+              {'min': 30,  'max': 9999, 'rate': 16.69}
+            ] %}
+            {%- set summer_surcharge = [
+              {'min': 20, 'max': 30, 'rate': 0.10},
+              {'min': 30, 'max': 9999, 'rate': 0.30}
+            ] %}
+            {%- set convert = {
+              'gallons':      {'CCF': 0.00133681, 'CM': 0.00378541},
+              'litres':       {'CCF': 0.000353147, 'CM': 0.001},
+              'cubic_feet':   {'CCF': 0.01, 'CM': 0.0283168},
+              'cubic_meters': {'CCF': 0.353147, 'CM': 1.0},
+              'CCF':          {'CCF': 1.0, 'CM': 2.83168},
+              'CM':           {'CCF': 0.353147, 'CM': 1.0}
+            } %}
+            {%- set usage_billing = raw_value * convert[usage_unit][rate_unit] -%}
+            {%- set ns = namespace(tier_rate=0) %}
+            {%- for t in tiers %}
+              {%- if usage_billing >= t.min and usage_billing < t.max %}
+                {%- set ns.tier_rate = t.rate %}
+              {%- endif %}
+            {%- endfor %}
+            {%- set ns_s = namespace(surcharge=0) %}
+            {%- if is_summer %}
+              {%- for s in summer_surcharge %}
+                {%- if usage_billing >= s.min and usage_billing < s.max %}
+                  {%- set ns_s.surcharge = s.rate %}
+                {%- endif %}
+              {%- endfor %}
+            {%- endif %}
+            {%- set maintenance = maintenance_rate if usage_billing >= maintenance_base else 0 -%}
+            {{ (ns.tier_rate + ns_s.surcharge + maintenance) | round(6) }}
+          usage_in_billing_unit: >
+            {%- set raw_value = states('sensor.droplet_water_volume') | float(0) -%}
+            {%- set usage_unit = 'gallons' -%}
+            {%- set rate_unit = 'CCF' -%}
+            {%- set convert = {
+              'gallons':      {'CCF': 0.00133681, 'CM': 0.00378541},
+              'litres':       {'CCF': 0.000353147, 'CM': 0.001},
+              'cubic_feet':   {'CCF': 0.01, 'CM': 0.0283168},
+              'cubic_meters': {'CCF': 0.353147, 'CM': 1.0},
+              'CCF':          {'CCF': 1.0, 'CM': 2.83168},
+              'CM':           {'CCF': 0.353147, 'CM': 1.0}
+            } %}
+            {{ (raw_value * convert[usage_unit][rate_unit]) | round(4) if usage_unit in convert and rate_unit in convert[usage_unit] else 0 }}
+          units_per_billing: >
+            {%- set billing_to_usage = {
+              ('CCF', 'gallons'): 748.051,
+              ('CCF', 'litres'): 2831.68,
+              ('CCF', 'cubic_feet'): 100,
+              ('CCF', 'cubic_meters'): 2.83168,
+              ('CM', 'gallons'): 264.172,
+              ('CM', 'litres'): 1000,
+              ('CM', 'cubic_feet'): 35.3147,
+              ('CM', 'cubic_meters'): 1,
+              ('CCF', 'CCF'): 1,
+              ('CM', 'CM'): 1
+            } %}
+            {%- set usage_unit = 'gallons' -%}
+            {%- set rate_unit = 'CCF' -%}
+            {{ billing_to_usage.get((rate_unit, usage_unit), 1) }}
           current_tier: >
-            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
-            {% if usage <= 3000 %}
-              Tier 1 (0-3,000 gallons)
-            {% elif usage <= 8000 %}
-              Tier 2 (3,001-8,000 gallons)
-            {% elif usage <= 15000 %}
-              Tier 3 (8,001-15,000 gallons)
-            {% else %}
-              Tier 4 (15,001+ gallons)
-            {% endif %}
-          
-          base_rate: >
-            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
-            {% if usage <= 3000 %}
-              {{ 0.0035 }}
-            {% elif usage <= 8000 %}
-              {{ 0.0045 }}
-            {% elif usage <= 15000 %}
-              {{ 0.0055 }}
-            {% else %}
-              {{ 0.0075 }}
-            {% endif %}
-          
-          summer_period: >
-            {{ now().month >= 5 and now().month <= 9 }}
-          
-          summer_surcharge: >
-            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
-            {% set is_summer = now().month >= 5 and now().month <= 9 %}
-            {% if is_summer %}
-              {% if usage <= 5000 %}
-                {{ 0.001 }}
-              {% elif usage <= 12000 %}
-                {{ 0.0015 }}
-              {% else %}
-                {{ 0.002 }}
-              {% endif %}
-            {% else %}
-              {{ 0 }}
-            {% endif %}
-          
-          total_estimated_cost: >
-            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
-            {% set rate = this.state | float(0) %}
-            {{ (usage * rate) | round(2) }}
-          
-          tier_breakdown: >
-            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
-            
-            {# Calculate costs for each tier #}
-            {% set tier1_usage = [usage, 3000] | min %}
-            {% set tier1_cost = tier1_usage * 0.0035 %}
-            
-            {% set tier2_usage = [[usage - 3000, 0] | max, 5000] | min %}
-            {% set tier2_cost = tier2_usage * 0.0045 %}
-            
-            {% set tier3_usage = [[usage - 8000, 0] | max, 7000] | min %}
-            {% set tier3_cost = tier3_usage * 0.0055 %}
-            
-            {% set tier4_usage = [usage - 15000, 0] | max %}
-            {% set tier4_cost = tier4_usage * 0.0075 %}
-            
-            Tier 1: {{ tier1_usage | round(0) }} gal @ ${{ "%.4f"|format(0.0035) }} = ${{ tier1_cost | round(2) }}
-            Tier 2: {{ tier2_usage | round(0) }} gal @ ${{ "%.4f"|format(0.0045) }} = ${{ tier2_cost | round(2) }}
-            Tier 3: {{ tier3_usage | round(0) }} gal @ ${{ "%.4f"|format(0.0055) }} = ${{ tier3_cost | round(2) }}
-            Tier 4: {{ tier4_usage | round(0) }} gal @ ${{ "%.4f"|format(0.0075) }} = ${{ tier4_cost | round(2) }}
-
-# Additional calculated sensors for detailed billing information
-  - sensor:
-      - name: "Water Bill Estimate"
-        unique_id: water_bill_estimate
-        unit_of_measurement: "$"
-        device_class: monetary
-        state_class: total
-        icon: mdi:currency-usd
-        state: >
-          {% set usage = states('sensor.water_usage_gallons') | float(0) %}
-          {% set is_summer = now().month >= 5 and now().month <= 9 %}
-          
-          {# Calculate tiered billing #}
-          {% set tier1_usage = [usage, 3000] | min %}
-          {% set tier1_cost = tier1_usage * 0.0035 %}
-          
-          {% set tier2_usage = [[usage - 3000, 0] | max, 5000] | min %}
-          {% set tier2_cost = tier2_usage * 0.0045 %}
-          
-          {% set tier3_usage = [[usage - 8000, 0] | max, 7000] | min %}
-          {% set tier3_cost = tier3_usage * 0.0055 %}
-          
-          {% set tier4_usage = [usage - 15000, 0] | max %}
-          {% set tier4_cost = tier4_usage * 0.0075 %}
-          
-          {% set base_total = tier1_cost + tier2_cost + tier3_cost + tier4_cost %}
-          
-          {# Calculate summer surcharges #}
-          {% set summer_cost = 0 %}
-          {% if is_summer %}
-            {% set band1_usage = [usage, 5000] | min %}
-            {% set band1_surcharge = band1_usage * 0.001 %}
-            
-            {% set band2_usage = [[usage - 5000, 0] | max, 7000] | min %}
-            {% set band2_surcharge = band2_usage * 0.0015 %}
-            
-            {% set band3_usage = [usage - 12000, 0] | max %}
-            {% set band3_surcharge = band3_usage * 0.002 %}
-            
-            {% set summer_cost = band1_surcharge + band2_surcharge + band3_surcharge %}
-          {% endif %}
-          
-          {{ (base_total + summer_cost) | round(2) }}
-        
-        attributes:
-          usage_gallons: >
-            {{ states('sensor.water_usage_gallons') | float(0) }}
-          
-          base_cost: >
-            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
-            
-            {% set tier1_usage = [usage, 3000] | min %}
-            {% set tier1_cost = tier1_usage * 0.0035 %}
-            
-            {% set tier2_usage = [[usage - 3000, 0] | max, 5000] | min %}
-            {% set tier2_cost = tier2_usage * 0.0045 %}
-            
-            {% set tier3_usage = [[usage - 8000, 0] | max, 7000] | min %}
-            {% set tier3_cost = tier3_usage * 0.0055 %}
-            
-            {% set tier4_usage = [usage - 15000, 0] | max %}
-            {% set tier4_cost = tier4_usage * 0.0075 %}
-            
-            {{ (tier1_cost + tier2_cost + tier3_cost + tier4_cost) | round(2) }}
-          
-          summer_surcharge_cost: >
-            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
-            {% set is_summer = now().month >= 5 and now().month <= 9 %}
-            
-            {% if is_summer %}
-              {% set band1_usage = [usage, 5000] | min %}
-              {% set band1_surcharge = band1_usage * 0.001 %}
-              
-              {% set band2_usage = [[usage - 5000, 0] | max, 7000] | min %}
-              {% set band2_surcharge = band2_usage * 0.0015 %}
-              
-              {% set band3_usage = [usage - 12000, 0] | max %}
-              {% set band3_surcharge = band3_usage * 0.002 %}
-              
-              {{ (band1_surcharge + band2_surcharge + band3_surcharge) | round(2) }}
-            {% else %}
-              {{ 0 }}
-            {% endif %}
+            {%- set raw_value = states('sensor.droplet_water_volume') | float(0) -%}
+            {%- set usage_unit = 'gallons' -%}
+            {%- set rate_unit = 'CCF' -%}
+            {%- set tiers = [
+              {'min': 0,   'max': 10,   'rate': 6.11},
+              {'min': 10,  'max': 20,   'rate': 10.34},
+              {'min': 20,  'max': 30,   'rate': 12.41},
+              {'min': 30,  'max': 9999, 'rate': 16.69}
+            ] %}
+            {%- set convert = {
+              'gallons':      {'CCF': 0.00133681, 'CM': 0.00378541},
+              'litres':       {'CCF': 0.000353147, 'CM': 0.001},
+              'cubic_feet':   {'CCF': 0.01, 'CM': 0.0283168},
+              'cubic_meters': {'CCF': 0.353147, 'CM': 1.0},
+              'CCF':          {'CCF': 1.0, 'CM': 2.83168},
+              'CM':           {'CCF': 0.353147, 'CM': 1.0}
+            } %}
+            {%- set usage_billing = raw_value * convert[usage_unit][rate_unit] %}
+            {%- set ns = namespace(tier_label='unknown') %}
+            {%- for t in tiers %}
+              {%- if usage_billing >= t.min and usage_billing < t.max %}
+                {%- set ns.tier_label = 'Tier ' ~ loop.index %}
+              {%- endif %}
+            {%- endfor %}
+            {{ ns.tier_label }}
+          debug: >
+            {%- set debug_mode = true -%}
+            {%- if debug_mode %}
+              {%- set raw_value = states('sensor.droplet_water_volume') | float(0) -%}
+              {%- set usage_unit = 'gallons' -%}
+              {%- set rate_unit = 'CCF' -%}
+              {%- set summer_months = [6,7,8,9] -%}
+              {%- set is_summer = now().month in summer_months -%}
+              {%- set maintenance_base = 6 -%}
+              {%- set maintenance_rate = 9.97 -%}
+              {%- set tiers = [
+                {'min': 0,   'max': 10,   'rate': 6.11},
+                {'min': 10,  'max': 20,   'rate': 10.34},
+                {'min': 20,  'max': 30,   'rate': 12.41},
+                {'min': 30,  'max': 9999, 'rate': 16.69}
+              ] %}
+              {%- set summer_surcharge = [
+                {'min': 20, 'max': 30, 'rate': 0.10},
+                {'min': 30, 'max': 9999, 'rate': 0.30}
+              ] %}
+              {%- set convert = {
+                'gallons':      {'CCF': 0.00133681, 'CM': 0.00378541},
+                'litres':       {'CCF': 0.000353147, 'CM': 0.001},
+                'cubic_feet':   {'CCF': 0.01, 'CM': 0.0283168},
+                'cubic_meters': {'CCF': 0.353147, 'CM': 1.0},
+                'CCF':          {'CCF': 1.0, 'CM': 2.83168},
+                'CM':           {'CCF': 0.353147, 'CM': 1.0}
+              } %}
+              {%- set usage_billing = raw_value * convert[usage_unit][rate_unit] -%}
+              {%- set ns = namespace(tier_rate=0, tier_label='unknown') %}
+              {%- for t in tiers %}
+                {%- if usage_billing >= t.min and usage_billing < t.max %}
+                  {%- set ns.tier_rate = t.rate %}
+                  {%- set ns.tier_label = 'Tier ' ~ loop.index %}
+                {%- endif %}
+              {%- endfor %}
+              {%- set ns_s = namespace(surcharge=0) %}
+              {%- if is_summer %}
+                {%- for s in summer_surcharge %}
+                  {%- if usage_billing >= s.min and usage_billing < s.max %}
+                    {%- set ns_s.surcharge = s.rate %}
+                  {%- endif %}
+                {%- endfor %}
+              {%- endif %}
+              {%- set maintenance = maintenance_rate if usage_billing >= maintenance_base else 0 -%}
+              {%- set marginal_rate = ns.tier_rate + ns_s.surcharge + maintenance %}
+              {%- set billing_to_usage = {
+                ('CCF', 'gallons'): 748.051,
+                ('CCF', 'litres'): 2831.68,
+                ('CCF', 'cubic_feet'): 100,
+                ('CCF', 'cubic_meters'): 2.83168,
+                ('CM', 'gallons'): 264.172,
+                ('CM', 'litres'): 1000,
+                ('CM', 'cubic_feet'): 35.3147,
+                ('CM', 'cubic_meters'): 1,
+                ('CCF', 'CCF'): 1,
+                ('CM', 'CM'): 1
+              } %}
+              {%- set units_per_billing = billing_to_usage.get((rate_unit, usage_unit), 1) %}
+              {%- set rate_per_usage = marginal_rate / units_per_billing if units_per_billing > 0 else 0 %}
+              {{ {
+                'raw_value': raw_value,
+                'usage_unit': usage_unit,
+                'rate_unit': rate_unit,
+                'usage_in_billing_unit': usage_billing,
+                'season': 'summer' if is_summer else 'winter',
+                'current_tier': ns.tier_label,
+                'tier_rate': ns.tier_rate,
+                'surcharge': ns_s.surcharge,
+                'maintenance': maintenance,
+                'marginal_rate': marginal_rate,
+                'units_per_billing': units_per_billing,
+                'rate_per_usage': rate_per_usage
+              } | to_json }}
+            {%- else %}OFF{%- endif %}
