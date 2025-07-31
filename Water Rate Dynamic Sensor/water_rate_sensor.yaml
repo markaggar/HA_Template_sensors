@@ -1,0 +1,222 @@
+# Water Rate Dynamic Sensor Template
+# This sensor calculates dynamic water rates based on tiered pricing structure
+# and includes summer surcharge logic for accurate billing calculations.
+
+template:
+  - sensor:
+      - name: "Water Rate Dynamic"
+        unique_id: water_rate_dynamic
+        unit_of_measurement: "$/gallon"
+        device_class: monetary
+        state_class: measurement
+        icon: mdi:water-circle
+        state: >
+          {% set usage = states('sensor.water_usage_gallons') | float(0) %}
+          {% set is_summer = now().month >= 5 and now().month <= 9 %}
+          
+          {# Tiered pricing structure - rates per gallon #}
+          {% set tier1_max = 3000 %}
+          {% set tier1_rate = 0.0035 %}
+          
+          {% set tier2_max = 8000 %}
+          {% set tier2_rate = 0.0045 %}
+          
+          {% set tier3_max = 15000 %}
+          {% set tier3_rate = 0.0055 %}
+          
+          {# Last tier set to very high max value to handle all usage levels #}
+          {% set tier4_max = 999999999 %}
+          {% set tier4_rate = 0.0075 %}
+          
+          {# Summer surcharge bands - additional charges during summer months #}
+          {% set summer_band1_max = 5000 %}
+          {% set summer_band1_surcharge = 0.001 %}
+          
+          {% set summer_band2_max = 12000 %}
+          {% set summer_band2_surcharge = 0.0015 %}
+          
+          {# Final summer band set to very high max value to ensure all usage is covered #}
+          {% set summer_band3_max = 999999999 %}
+          {% set summer_band3_surcharge = 0.002 %}
+          
+          {# Calculate base rate based on tiered structure #}
+          {% if usage <= tier1_max %}
+            {% set base_rate = tier1_rate %}
+          {% elif usage <= tier2_max %}
+            {% set base_rate = tier2_rate %}
+          {% elif usage <= tier3_max %}
+            {% set base_rate = tier3_rate %}
+          {% else %}
+            {% set base_rate = tier4_rate %}
+          {% endif %}
+          
+          {# Calculate summer surcharge if applicable #}
+          {% set summer_surcharge = 0 %}
+          {% if is_summer %}
+            {% if usage <= summer_band1_max %}
+              {% set summer_surcharge = summer_band1_surcharge %}
+            {% elif usage <= summer_band2_max %}
+              {% set summer_surcharge = summer_band2_surcharge %}
+            {% else %}
+              {% set summer_surcharge = summer_band3_surcharge %}
+            {% endif %}
+          {% endif %}
+          
+          {# Final rate calculation #}
+          {{ (base_rate + summer_surcharge) | round(6) }}
+        
+        attributes:
+          usage_gallons: >
+            {{ states('sensor.water_usage_gallons') | float(0) }}
+          
+          current_tier: >
+            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
+            {% if usage <= 3000 %}
+              Tier 1 (0-3,000 gallons)
+            {% elif usage <= 8000 %}
+              Tier 2 (3,001-8,000 gallons)
+            {% elif usage <= 15000 %}
+              Tier 3 (8,001-15,000 gallons)
+            {% else %}
+              Tier 4 (15,001+ gallons)
+            {% endif %}
+          
+          base_rate: >
+            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
+            {% if usage <= 3000 %}
+              {{ 0.0035 }}
+            {% elif usage <= 8000 %}
+              {{ 0.0045 }}
+            {% elif usage <= 15000 %}
+              {{ 0.0055 }}
+            {% else %}
+              {{ 0.0075 }}
+            {% endif %}
+          
+          summer_period: >
+            {{ now().month >= 5 and now().month <= 9 }}
+          
+          summer_surcharge: >
+            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
+            {% set is_summer = now().month >= 5 and now().month <= 9 %}
+            {% if is_summer %}
+              {% if usage <= 5000 %}
+                {{ 0.001 }}
+              {% elif usage <= 12000 %}
+                {{ 0.0015 }}
+              {% else %}
+                {{ 0.002 }}
+              {% endif %}
+            {% else %}
+              {{ 0 }}
+            {% endif %}
+          
+          total_estimated_cost: >
+            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
+            {% set rate = this.state | float(0) %}
+            {{ (usage * rate) | round(2) }}
+          
+          tier_breakdown: >
+            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
+            
+            {# Calculate costs for each tier #}
+            {% set tier1_usage = [usage, 3000] | min %}
+            {% set tier1_cost = tier1_usage * 0.0035 %}
+            
+            {% set tier2_usage = [[usage - 3000, 0] | max, 5000] | min %}
+            {% set tier2_cost = tier2_usage * 0.0045 %}
+            
+            {% set tier3_usage = [[usage - 8000, 0] | max, 7000] | min %}
+            {% set tier3_cost = tier3_usage * 0.0055 %}
+            
+            {% set tier4_usage = [usage - 15000, 0] | max %}
+            {% set tier4_cost = tier4_usage * 0.0075 %}
+            
+            Tier 1: {{ tier1_usage | round(0) }} gal @ ${{ "%.4f"|format(0.0035) }} = ${{ tier1_cost | round(2) }}
+            Tier 2: {{ tier2_usage | round(0) }} gal @ ${{ "%.4f"|format(0.0045) }} = ${{ tier2_cost | round(2) }}
+            Tier 3: {{ tier3_usage | round(0) }} gal @ ${{ "%.4f"|format(0.0055) }} = ${{ tier3_cost | round(2) }}
+            Tier 4: {{ tier4_usage | round(0) }} gal @ ${{ "%.4f"|format(0.0075) }} = ${{ tier4_cost | round(2) }}
+
+# Additional calculated sensors for detailed billing information
+  - sensor:
+      - name: "Water Bill Estimate"
+        unique_id: water_bill_estimate
+        unit_of_measurement: "$"
+        device_class: monetary
+        state_class: total
+        icon: mdi:currency-usd
+        state: >
+          {% set usage = states('sensor.water_usage_gallons') | float(0) %}
+          {% set is_summer = now().month >= 5 and now().month <= 9 %}
+          
+          {# Calculate tiered billing #}
+          {% set tier1_usage = [usage, 3000] | min %}
+          {% set tier1_cost = tier1_usage * 0.0035 %}
+          
+          {% set tier2_usage = [[usage - 3000, 0] | max, 5000] | min %}
+          {% set tier2_cost = tier2_usage * 0.0045 %}
+          
+          {% set tier3_usage = [[usage - 8000, 0] | max, 7000] | min %}
+          {% set tier3_cost = tier3_usage * 0.0055 %}
+          
+          {% set tier4_usage = [usage - 15000, 0] | max %}
+          {% set tier4_cost = tier4_usage * 0.0075 %}
+          
+          {% set base_total = tier1_cost + tier2_cost + tier3_cost + tier4_cost %}
+          
+          {# Calculate summer surcharges #}
+          {% set summer_cost = 0 %}
+          {% if is_summer %}
+            {% set band1_usage = [usage, 5000] | min %}
+            {% set band1_surcharge = band1_usage * 0.001 %}
+            
+            {% set band2_usage = [[usage - 5000, 0] | max, 7000] | min %}
+            {% set band2_surcharge = band2_usage * 0.0015 %}
+            
+            {% set band3_usage = [usage - 12000, 0] | max %}
+            {% set band3_surcharge = band3_usage * 0.002 %}
+            
+            {% set summer_cost = band1_surcharge + band2_surcharge + band3_surcharge %}
+          {% endif %}
+          
+          {{ (base_total + summer_cost) | round(2) }}
+        
+        attributes:
+          usage_gallons: >
+            {{ states('sensor.water_usage_gallons') | float(0) }}
+          
+          base_cost: >
+            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
+            
+            {% set tier1_usage = [usage, 3000] | min %}
+            {% set tier1_cost = tier1_usage * 0.0035 %}
+            
+            {% set tier2_usage = [[usage - 3000, 0] | max, 5000] | min %}
+            {% set tier2_cost = tier2_usage * 0.0045 %}
+            
+            {% set tier3_usage = [[usage - 8000, 0] | max, 7000] | min %}
+            {% set tier3_cost = tier3_usage * 0.0055 %}
+            
+            {% set tier4_usage = [usage - 15000, 0] | max %}
+            {% set tier4_cost = tier4_usage * 0.0075 %}
+            
+            {{ (tier1_cost + tier2_cost + tier3_cost + tier4_cost) | round(2) }}
+          
+          summer_surcharge_cost: >
+            {% set usage = states('sensor.water_usage_gallons') | float(0) %}
+            {% set is_summer = now().month >= 5 and now().month <= 9 %}
+            
+            {% if is_summer %}
+              {% set band1_usage = [usage, 5000] | min %}
+              {% set band1_surcharge = band1_usage * 0.001 %}
+              
+              {% set band2_usage = [[usage - 5000, 0] | max, 7000] | min %}
+              {% set band2_surcharge = band2_usage * 0.0015 %}
+              
+              {% set band3_usage = [usage - 12000, 0] | max %}
+              {% set band3_surcharge = band3_usage * 0.002 %}
+              
+              {{ (band1_surcharge + band2_surcharge + band3_surcharge) | round(2) }}
+            {% else %}
+              {{ 0 }}
+            {% endif %}
