@@ -1,6 +1,6 @@
 # Dynamic Water Rate Sensor for Home Assistant
 
-This template sensor calculates your water usage cost with support for tiered rates and summer surcharges. It is designed for easy integration with Home Assistant and can be customized to match your local utility's pricing structure.
+This template sensor calculates your current water rate (e.g. cost per gallon) based on your current monthly usage. It is designed for easy integration with Home Assistant and can be customized to match your local utility's pricing structure.
 
 ## Features
 
