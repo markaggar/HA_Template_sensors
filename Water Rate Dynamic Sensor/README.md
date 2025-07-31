@@ -7,6 +7,7 @@ This template sensor calculates your water usage cost with support for tiered ra
 - Tiered water pricing support
 - Automatic summer surcharge and variable maintenance fee calculations included in the rate (if applicable to your utility) 
 - Simple template sensor
+- Debug mode support so you can see how the rate is calculated
 - Does not include fixed costs that will be charged no matter what the usage.
 
 ## Uses
@@ -89,5 +90,11 @@ You will need your water utility rate plan to plug in the various tiers and rate
 - It outputs the calculated cost as another sensor (e.g., `sensor.water_rate_cost`).
 
 ## Support
+
+If it's not calculating as you would expect, temporarily turn on debug mode to see how it is calculating the number.
+
+```
+{%- set debug_mode = false -%}
+```
 
 This sensor is provided **as-is** with no guarantee of support. Issues or pull requests will be considered but there is no assurance they will be acted upon.
