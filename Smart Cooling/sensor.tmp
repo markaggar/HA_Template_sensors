@@ -1,0 +1,830 @@
+{# ========== SENSOR CONFIGURATION (EASY TO MODIFY) ========== #}
+{# Device sensors - modify these if your entity names are different #}
+{% set window_sensor = 'binary_bedroom_sliding_window' %}
+{% set fan_sensor = 'binary_sensor.master_bed_window_fan_state' %}
+{% set ac_sensor = 'binary_sensor.tstat_upstairs_ac_on' %}
+
+{# Environmental sensors #}
+{% set indoor_temp_sensor = 'sensor.master_bedroom_smart_temperature' %}
+{% set outdoor_temp_sensor = 'sensor.outside_temperature_coldest_sensor' %}
+{% set indoor_humidity_sensor = 'sensor.master_bed_air_quality_humidity' %}
+{% set aqi_sensor = 'sensor.airnow_aqi' %}
+{% set wind_speed_sensor = 'sensor.chezaggar_wind' %}
+{% set cloud_coverage_sensor = 'sensor.chezaggar_cloud_cover' %}
+{% set uv_index_sensor = 'sensor.chezaggar_uv_index' %}
+
+{# Weather forecast entity #}
+{% set weather_entity = 'sensor.weather_hourly_forecast' %}
+
+{# User configuration entities #}
+{% set target_temp_entity = 'input_number.bedroom_target_temp' %}
+{% set bedtime_entity = 'input_datetime.bedtime' %}
+{% set house_ac_setpoint_entity = 'input_number.upstairs_bedrooms_cooling_setpoint' %}
+{% set aqi_threshold_entity = 'input_number.aqi_window_threshold' %}
+{% set temp_advantage_entity = 'input_number.outdoor_temp_advantage' %}
+{% set min_wind_entity = 'input_number.min_wind_natural_cooling' %}
+{% set comfort_tolerance_entity = 'input_number.comfort_tolerance' %}
+
+{# Cooling effectiveness parameters - User configurable #}
+{% set natural_cooling_effectiveness = 0.4 %}
+{% set fan_cooling_effectiveness = 0.7 %}
+{% set ac_base_cooling_rate = 3.5 %}
+{% set thermal_transfer_coefficient = 0.3 %}
+{# ========== END SENSOR CONFIGURATION ========== #}
+
+{# Debug and simulation controls #}
+{% set debug = true %}
+{% set simulation_mode = false %}
+
+{# Helper function - MOVED UP FOR UNIVERSAL ACCESS #}
+{% macro safe_float(value, default) -%}
+{%- if value is none or value == none or value == None -%}
+{{ default | float }}
+{%- elif value | string in ['unknown', 'unavailable', '', 'None', 'null'] -%}
+{{ default | float }}
+{%- else -%}
+{%- set float_val = value | float(default) -%}
+{%- if float_val | string == 'nan' -%}
+{{ default | float }}
+{%- else -%}
+{{ float_val }}
+{%- endif -%}
+{%- endif -%}
+{% endmacro %}
+
+{# User Configuration - MOVED TO TOP FOR EASY ACCESS #}
+{% if simulation_mode %}
+  {% set target_temp = safe_float(states(target_temp_entity), 72) %}
+  {% set house_ac_setpoint = 72 %}  {# Simulation override #}
+  {% set bedtime = states(bedtime_entity) if states(bedtime_entity) not in ['unknown', 'unavailable'] else '22:30:00' %}
+  {% set aqi_threshold = safe_float(states(aqi_threshold_entity), 75) %}
+  {% set temp_differential_required = safe_float(states(temp_advantage_entity), 3) %}
+  {% set min_wind_natural = safe_float(states(min_wind_entity), 5) %}
+  {% set comfort_tolerance = safe_float(states(comfort_tolerance_entity), 1) %}
+{% else %}
+  {% set target_temp = safe_float(states(target_temp_entity), 72) %}
+  {% set house_ac_setpoint = safe_float(states(house_ac_setpoint_entity), 72) %}
+  {% set bedtime = states(bedtime_entity) if states(bedtime_entity) not in ['unknown', 'unavailable'] else '22:30:00' %}
+  {% set aqi_threshold = safe_float(states(aqi_threshold_entity), 75) %}
+  {% set temp_differential_required = safe_float(states(temp_advantage_entity), 3) %}
+  {% set min_wind_natural = safe_float(states(min_wind_entity), 5) %}
+  {% set comfort_tolerance = safe_float(states(comfort_tolerance_entity), 1) %}
+{% endif %}
+
+{# Convert user inputs to proper types #}
+{% set target_temp_float = target_temp | float %}
+{% set house_ac_setpoint_float = house_ac_setpoint | float %}
+
+{# Universal Macros for Target Achievement Analysis - PHASE 1 #}
+{% macro calculate_target_achievement_time(current_temp, target_temp, cooling_rate, start_time_str) -%}
+{%- set temp_deficit = (current_temp | float) - (target_temp | float) -%}
+{%- if temp_deficit <= 0 -%}
+{%- set hours_needed = 0 -%}
+{%- elif cooling_rate <= 0 -%}
+{%- set hours_needed = 999 -%}
+{%- else -%}
+{%- set hours_needed = temp_deficit / (cooling_rate | float) -%}
+{%- endif -%}
+
+{%- if hours_needed < 999 -%}
+{%- set start_time = strptime(start_time_str, '%H:%M:%S') -%}
+{%- set achievement_time = start_time + timedelta(hours=hours_needed) -%}
+{%- set time_str = achievement_time.strftime('%I:%M%p') | lower -%}
+{{ time_str }}
+{%- else -%}
+Never
+{%- endif -%}
+{% endmacro %}
+
+{% macro analyze_target_achievement(current_temp, target_temp, cooling_rate, hours_available, start_time_str, bedtime_temp) -%}
+{%- set temp_deficit = (current_temp | float) - (target_temp | float) -%}
+{%- set will_reach_target = (cooling_rate | float) * (hours_available | float) >= temp_deficit -%}
+{%- set target_time = calculate_target_achievement_time(current_temp, target_temp, cooling_rate, start_time_str) -%}
+{%- set show_target_time = will_reach_target and target_time != 'Never' -%}
+
+{# FIXED: Use realistic bedtime temperature calculation with physics constraints #}
+{%- set theoretical_cooling = (cooling_rate | float) * (hours_available | float) -%}
+{%- set max_realistic_cooling = ((bedtime_temp | float) - 65.0) * 0.6 -%}  {# Can't cool more than 60% toward 65°F #}
+{%- set actual_cooling = [theoretical_cooling, max_realistic_cooling, temp_deficit] | min -%}
+{%- if actual_cooling < 0 -%}
+  {%- set actual_cooling = 0 -%}
+{%- endif -%}
+{%- set realistic_bedtime_temp = (bedtime_temp | float) - (actual_cooling | float) -%}
+
+{{ {
+  'will_reach_target': will_reach_target,
+  'target_time': target_time,
+  'show_target_time': show_target_time,
+  'bedtime_temp': realistic_bedtime_temp | round(1)
+} | tojson }}
+{% endmacro %}
+
+{# Current device states using configured sensors #}
+{% set current_window_open = is_state(window_sensor, 'on') %}
+{% set current_fan_running = is_state(fan_sensor, 'on') %}
+{% set current_ac_running = is_state(ac_sensor, 'on') %}
+
+{# Environmental data #}
+{% set current_temp = safe_float(states(indoor_temp_sensor), 75) %}
+{% set outdoor_temp = safe_float(states(outdoor_temp_sensor), 70) %}
+{% set indoor_humidity = safe_float(states(indoor_humidity_sensor), 50) %}
+{% set aqi_value = safe_float(states(aqi_sensor), 50) %}
+{% set current_wind = safe_float(states(wind_speed_sensor), 3) %}
+{% set cloud_coverage = safe_float(states(cloud_coverage_sensor), 50) %}
+{% set uv_index = safe_float(states(uv_index_sensor), 3) %}
+
+{# Convert to proper float types for calculations #}
+{% set current_temp_float = current_temp | float %}
+{% set outdoor_temp_float = outdoor_temp | float %}
+
+{# Check environmental conditions #}
+{% set aqi_ok = (aqi_value | float) <= (aqi_threshold | float) %}
+{% set has_temp_advantage = (outdoor_temp_float | float) + (temp_differential_required | float) < (current_temp_float | float) %}
+{% set wind_adequate = (current_wind | float) >= (min_wind_natural | float) %}
+
+{# Bedtime calculation #}
+{% set now = now() %}
+{% set bedtime_today = today_at(bedtime) %}
+{% set bedtime_target_local = bedtime_today if now < bedtime_today else (bedtime_today + timedelta(days=1)) %}
+{% set time_to_bedtime = bedtime_target_local - now %}
+{% set hours_to_bedtime = (time_to_bedtime.total_seconds() / 3600) | round(2) | float %}
+{% set hours_to_bedtime_float = hours_to_bedtime | float %}
+{% set is_past_bedtime = hours_to_bedtime_float <= 0 %}
+{% set is_next_day_scenario = bedtime_target_local.day != now.day %}
+
+{# For display purposes #}
+{% set bedtime_display = bedtime_target_local.strftime('%I:%M%p') | lower %}
+
+{# Weather forecast data #}
+{% set forecast_data = state_attr(weather_entity, 'forecast') %}
+{% set processed_forecast = [] %}
+
+{% if forecast_data %}
+  {% set forecast_ns = namespace(data=[]) %}
+  {% for item in forecast_data %}
+    {% if item.datetime %}
+      {% set dt_local = as_datetime(item.datetime).astimezone() %}
+      {% if dt_local >= now and dt_local <= (now + timedelta(hours=12)) %}
+        {% set forecast_ns.data = forecast_ns.data + [{
+          'datetime_local': dt_local,
+          'hour_local': dt_local.hour,
+          'temperature': safe_float(item.temperature, outdoor_temp_float),
+          'humidity': safe_float(item.humidity, 50),
+          'wind_speed': safe_float(item.wind_speed, current_wind),
+          'cloud_coverage': safe_float(item.cloud_coverage, cloud_coverage),
+          'uv_index': safe_float(item.uv_index, 0)
+        }] %}
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+  {% set processed_forecast = forecast_ns.data %}
+{% endif %}
+
+{# Heat gain calculation function #}
+{% macro calculate_heat_gain(hour_conditions, current_indoor) -%}
+{%- set outdoor_temp = hour_conditions.temperature | float -%}
+{%- set humidity = hour_conditions.humidity | float -%}
+{%- set cloud_cover = hour_conditions.cloud_coverage | float -%}
+{%- set uv = hour_conditions.uv_index | float -%}
+{%- set hour = hour_conditions.hour_local | int -%}
+
+{%- set base_rate = 2.2 -%}
+{%- set temp_diff_factor = ((outdoor_temp - 70) * 0.15) | round(2) -%}
+{%- set humidity_factor = ((humidity - 50) * 0.02) | round(2) -%}
+{%- set solar_factor = (((100 - cloud_cover) / 100) * uv * 0.3) if hour >= 8 and hour <= 18 else 0 -%}
+
+{%- set total_rate = base_rate + temp_diff_factor + humidity_factor + solar_factor -%}
+{{ [total_rate, 0.5] | max | round(2) }}
+{% endmacro %}
+
+{# Base heat gain for current conditions #}
+{% if processed_forecast and processed_forecast | length > 0 %}
+  {% set current_hour_data = {
+    'temperature': outdoor_temp_float,
+    'humidity': indoor_humidity,
+    'cloud_coverage': cloud_coverage,
+    'uv_index': uv_index,
+    'hour_local': now.hour
+  } %}
+  {% set base_heat_gain_rate = calculate_heat_gain(current_hour_data, current_temp_float) | float %}
+{% else %}
+  {% set base_heat_gain_rate = 2.5 %}
+{% endif %}
+
+{# Temperature progression prediction with house AC integration #}
+{% set temp_ns = namespace(temp=current_temp_float, predictions=[]) %}
+
+{% if processed_forecast and processed_forecast | length > 0 %}
+  {% set forecast_ns = namespace(processed_data=[]) %}
+  {% for hour_data in processed_forecast %}
+    {% if hour_data.datetime_local <= bedtime_target_local %}
+      {% set heat_gain_rate = calculate_heat_gain(hour_data, temp_ns.temp) | float %}
+      {% set outdoor_temp_hour = hour_data.temperature | float %}
+      
+      {# GROUNDED: If outdoor is cooler than indoor, natural cooling occurs #}
+      {% if outdoor_temp_hour < temp_ns.temp %}
+        {% set natural_cooling_effect = ((temp_ns.temp - outdoor_temp_hour) * thermal_transfer_coefficient) | round(2) | float %}
+        {% set net_change = (heat_gain_rate | float) - (natural_cooling_effect | float) %}
+        {# Ensure we don't cool below outdoor temperature #}
+        {% if net_change < 0 and (temp_ns.temp + net_change) < outdoor_temp_hour %}
+          {% set net_change = outdoor_temp_hour - temp_ns.temp %}
+        {% endif %}
+      {% else %}
+        {% set net_change = heat_gain_rate | float %}
+      {% endif %}
+      
+      {% set projected_temp = (temp_ns.temp | float) + (net_change | float) %}
+      
+      {# GROUNDED: Factor in house AC cooling when indoor exceeds setpoint #}
+      {% if projected_temp > house_ac_setpoint_float %}
+        {% set excess_heat = (projected_temp | float) - (house_ac_setpoint_float | float) %}
+        {% set house_ac_cooling_factor = 0.7 %}
+        {% set net_excess = (excess_heat | float) * (1 - house_ac_cooling_factor) %}
+        {% set temp_ns.temp = (house_ac_setpoint_float | float) + (net_excess | float) %}
+      {% else %}
+        {% set temp_ns.temp = projected_temp | float %}
+      {% endif %}
+      
+      {# GROUNDED: Store realistic progression showing temperature evolution #}
+      {% set temp_ns.predictions = temp_ns.predictions + [{
+        'hour': hour_data.hour_local,
+        'temperature': temp_ns.temp | float | round(1),
+        'heat_gain_rate': heat_gain_rate | float,
+        'outdoor_temp': hour_data.temperature | float,
+        'house_ac_active': projected_temp > house_ac_setpoint_float,
+        'raw_projected': projected_temp | float | round(1),
+        'net_change': net_change | float | round(2),
+        'conditions': hour_data
+      }] %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+{% set temp_predictions = temp_ns.predictions %}
+
+{# GROUNDED FIX #3: Bedtime prediction based on realistic progression #}
+{% if temp_predictions %}
+  {% set uncooled_bedtime_temp = (temp_predictions[-1].temperature | float) %}
+{% else %}
+  {# Fallback: Start from current actual temperature #}
+  {% set base_gain_per_hour = safe_float(base_heat_gain_rate, 2.2) | float %}
+  {% set hours_remaining = safe_float(hours_to_bedtime, 0) | float %}
+  {% set estimated_final_temp = (current_temp | float) + ((base_gain_per_hour | float) * (hours_remaining | float)) %}
+  
+  {% if estimated_final_temp > (house_ac_setpoint | float) %}
+    {% set excess_heat = (estimated_final_temp | float) - (house_ac_setpoint | float) %}
+    {% set house_ac_cooling_factor = 0.7 %}
+    {% set net_excess = (excess_heat | float) * (1 - house_ac_cooling_factor) %}
+    {% set uncooled_bedtime_temp = (house_ac_setpoint | float) + (net_excess | float) %}
+  {% else %}
+    {% set uncooled_bedtime_temp = estimated_final_temp | float %}
+  {% endif %}
+{% endif %}
+{% set cooling_deficit = ((uncooled_bedtime_temp | float) - (target_temp | float)) | round(1) %}
+
+{# Natural cooling opportunity detection - UNCHANGED #}
+{% macro get_predicted_indoor_temp(target_hour) %}
+  {%- set target_hour_int = target_hour | int -%}
+  {%- for pred in temp_predictions -%}
+    {%- if pred.hour | int == target_hour_int -%}
+      {{- pred.temperature | float -}}
+      {%- break -%}
+    {%- endif -%}
+  {%- endfor -%}
+{% endmacro %}
+
+{% set current_outdoor_cooler = (outdoor_temp | float) < (current_temp | float) %}
+
+{% set trend_ns = namespace(rising=false) %}
+{% if processed_forecast | length > 0 %}
+  {% set current_outdoor = outdoor_temp | float %}
+  {% for hour_data in processed_forecast[:4] %}
+    {% if (hour_data.temperature | float) > current_outdoor %}
+      {% set trend_ns.rising = true %}
+      {% break %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+{% set current_suitable_for_natural = has_temp_advantage and aqi_ok and (not trend_ns.rising) %}
+
+{# Natural cooling window detection with forecast #}
+{% set natural_window_ns = namespace(opportunities=[]) %}
+
+{% if processed_forecast and has_temp_advantage and aqi_ok %}
+  {% set window_detection_ns = namespace(processed_windows=[]) %}
+  {% for hour_data in processed_forecast %}
+    {% set predicted_indoor_at_hour = get_predicted_indoor_temp(hour_data.hour_local) %}
+    
+    {% if predicted_indoor_at_hour %}
+      {% set predicted_temp = predicted_indoor_at_hour | float %}
+      {% set outdoor_temp_hour = hour_data.temperature | float %}
+      {% set wind_speed = hour_data.wind_speed | float %}
+      
+      {% set temp_advantage = predicted_temp - outdoor_temp_hour %}
+      
+      {% set forecast_temp_threshold = temp_differential_required | float - 0.5 %}
+      {% if temp_advantage >= forecast_temp_threshold and aqi_ok %}
+        {% set wind_adequate = wind_speed >= (min_wind_natural | float) %}
+        {% set method = 'Natural cooling' if wind_adequate else 'Fan' %}
+        
+        {% set hour_is_evening_or_night = hour_data.hour_local >= 18 %}
+        {% set outdoor_trend_good = true %}
+        
+        {% if not hour_is_evening_or_night %}
+          {% set trend_check_ns = namespace(prev_outdoor=999, next_outdoor=0, next2_outdoor=0, clearly_peaked=false, sustained_cooling=false) %}
+          
+          {% set trend_search_ns = namespace(found_prev=false, found_next=false, found_next2=false) %}
+          {% for check_hour in processed_forecast %}
+            {% if check_hour.hour_local == (hour_data.hour_local - 1) and not trend_search_ns.found_prev %}
+              {% set trend_check_ns.prev_outdoor = check_hour.temperature | float %}
+              {% set trend_search_ns.found_prev = true %}
+            {% endif %}
+            {% if check_hour.hour_local == (hour_data.hour_local + 1) and not trend_search_ns.found_next %}
+              {% set trend_check_ns.next_outdoor = check_hour.temperature | float %}
+              {% set trend_search_ns.found_next = true %}
+            {% endif %}
+            {% if check_hour.hour_local == (hour_data.hour_local + 2) and not trend_search_ns.found_next2 %}
+              {% set trend_check_ns.next2_outdoor = check_hour.temperature | float %}
+              {% set trend_search_ns.found_next2 = true %}
+            {% endif %}
+          {% endfor %}
+          
+          {% if trend_check_ns.prev_outdoor < 999 and trend_check_ns.next_outdoor > 0 and trend_check_ns.next2_outdoor > 0 %}
+            {% set trend_check_ns.clearly_peaked = (outdoor_temp_hour <= trend_check_ns.prev_outdoor) %}
+            {% set trend_check_ns.sustained_cooling = (trend_check_ns.next_outdoor < outdoor_temp_hour) and (trend_check_ns.next2_outdoor < trend_check_ns.next_outdoor) %}
+            {% set outdoor_trend_good = trend_check_ns.clearly_peaked or trend_check_ns.sustained_cooling %}
+          {% endif %}
+        {% endif %}
+        
+        {% if outdoor_trend_good %}
+          {% set natural_window_ns.opportunities = natural_window_ns.opportunities + [{
+            'hour': hour_data.hour_local,
+            'method': method,
+            'temp_advantage': temp_advantage | round(1),
+            'wind_speed': wind_speed | round(1),
+            'outdoor_temp': outdoor_temp_hour | round(1),
+            'predicted_indoor': predicted_temp | round(1)
+          }] %}
+        {% endif %}
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+{# Cooling effectiveness functions - REVERT TO WORKING STATE #}
+{% macro calculate_natural_cooling_rate(outdoor_temp, indoor_temp) -%}
+{%- set temp_diff = (indoor_temp | float) - (outdoor_temp | float) -%}
+{%- set rate = (temp_diff * natural_cooling_effectiveness) | round(2) -%}
+{{ [rate, 0] | max }}
+{% endmacro %}
+
+{% macro calculate_fan_cooling_rate(outdoor_temp, indoor_temp) -%}
+{%- set temp_diff = (indoor_temp | float) - (outdoor_temp | float) -%}
+{%- set rate = (temp_diff * fan_cooling_effectiveness) | round(2) -%}
+{{ [rate, 0] | max }}
+{% endmacro %}
+
+{% macro dynamic_ac_cooling_rate(outdoor_temp, indoor_temp) -%}
+{%- set base_rate = ac_base_cooling_rate -%}
+{%- set temp_diff = (outdoor_temp | float) - 75 -%}
+{%- set efficiency_factor = 1 - (temp_diff * 0.05) -%}
+{%- set rate = base_rate * ([efficiency_factor, 0.5] | max) -%}
+{{ rate | round(2) }}
+{% endmacro %}
+
+{# Current cooling rates #}
+{% set natural_cooling_rate = calculate_natural_cooling_rate(outdoor_temp_float, current_temp_float) | float %}
+{% set fan_cooling_rate = calculate_fan_cooling_rate(outdoor_temp_float, current_temp_float) | float %}
+{% set ac_cooling_rate = dynamic_ac_cooling_rate(outdoor_temp_float, current_temp_float) | float %}
+
+{# Phase 4: Device State Awareness - Check what's currently active and effective #}
+{% set fan_handling_cooling = current_fan_running and has_temp_advantage and aqi_ok %}
+{% set window_handling_cooling = current_window_open and has_temp_advantage and aqi_ok and wind_adequate %}
+{% set ac_handling_cooling = current_ac_running %}
+{% set ac_currently_active = ac_handling_cooling %}
+
+{# Determine if cooling is actually needed #}
+{% set cooling_deficit_float = cooling_deficit | float %}
+{% set needs_cooling = (cooling_deficit_float | float) > (comfort_tolerance | float) %}
+
+{# AC effectiveness check #}
+{% set time_available = hours_to_bedtime_float %}
+{% set ac_cooling_potential = ac_cooling_rate * time_available %}
+{% set ac_will_achieve_target = ac_cooling_potential >= cooling_deficit_float %}
+
+{# Current temperature check for immediate satisfaction #}
+{% set current_temp_satisfactory = ((current_temp_float | float) - (target_temp_float | float)) <= (comfort_tolerance | float) %}
+{% set projected_temp_satisfactory = ((uncooled_bedtime_temp | float) - (target_temp_float | float)) <= (comfort_tolerance | float) %}
+{% set target_already_met = current_temp_satisfactory and projected_temp_satisfactory %}
+
+{# =========================== STRATEGY SELECTION LOGIC - CLEAN RESTART =========================== #}
+
+{% set strategy = namespace(method='', timing='', reasoning='', predicted_temp=uncooled_bedtime_temp) %}
+
+{# Universal logic for determining strategy #}
+{% if target_already_met %}
+  {% set strategy.method = 'No action needed' %}
+  {% set strategy.timing = '' %}
+  {% set strategy.reasoning = 'Current and projected temperatures within comfort range' %}
+  {% set strategy.predicted_temp = uncooled_bedtime_temp | round(1) %}
+  {% if ac_currently_active %}
+    {% set strategy.method = 'Turn off AC' %}
+    {% set strategy.timing = 'NOW!' %}
+    {% set strategy.reasoning = 'Target already achieved and AC is running unnecessarily' %}
+    {% set strategy.predicted_temp = current_temp_float %}
+  {% elif fan_handling_cooling %}
+    {% set strategy.method = 'Turn off fan' %}
+    {% set strategy.timing = 'NOW!' %}
+    {% set strategy.reasoning = 'Target already achieved and fan is running unnecessarily' %}
+    {% set strategy.predicted_temp = current_temp_float %}
+  {% elif window_handling_cooling %}
+    {% set strategy.method = 'Close window' %}
+    {% set strategy.timing = 'NOW!' %}
+    {% set strategy.reasoning = 'Target already achieved and window is open unnecessarily' %}
+    {% set strategy.predicted_temp = current_temp_float %}
+  {% else %}
+    {% set strategy.method = 'No action needed' %}
+    {% set strategy.timing = '' %}
+    {% set strategy.reasoning = 'Target temperature already achieved' %}
+    {% set strategy.predicted_temp = current_temp_float %}
+  {% endif %}
+
+{% elif is_past_bedtime %}
+  {% if not ac_currently_active %}
+    {% set strategy.method = 'Start AC' %}
+    {% set strategy.timing = 'NOW!' %}
+    {% set strategy.reasoning = 'Past bedtime and cooling needed' %}
+    {% set strategy.predicted_temp = current_temp_float - (ac_cooling_rate * 1) %}
+  {% else %}
+    {% set strategy.method = 'Continue AC' %}
+    {% set strategy.timing = '' %}
+    {% set strategy.reasoning = 'Past bedtime, AC already running' %}
+    {% set strategy.predicted_temp = current_temp_float - (ac_cooling_rate * 1) %}
+  {% endif %}
+
+{% elif not needs_cooling %}
+  {% set strategy.method = 'No cooling needed' %}
+  {% set strategy.timing = '' %}
+  {% set strategy.reasoning = 'Projected bedtime temperature within comfort tolerance' %}
+  {% set strategy.predicted_temp = uncooled_bedtime_temp %}
+
+{% else %}
+  {# Priority 1: Natural cooling (window only) - UPDATED LOGIC #}
+  {% if has_temp_advantage and aqi_ok and wind_adequate and not current_window_open %}
+    {% set natural_potential = natural_cooling_rate * time_available %}
+    {% if natural_potential >= cooling_deficit_float %}
+      {% set strategy.method = 'Open window' %}
+      {% set strategy.timing = 'NOW!' %}
+      {% set strategy.reasoning = 'Natural cooling sufficient with good wind' %}
+      {% set cooling_hours = cooling_deficit_float / natural_cooling_rate %}
+      {% set actual_cooling_time = [time_available, cooling_hours] | min %}
+      {% set actual_cooling_achieved = natural_cooling_rate * actual_cooling_time %}
+      {% set bedtime_temp_natural = uncooled_bedtime_temp - actual_cooling_achieved %}
+      {% set strategy.predicted_temp = bedtime_temp_natural | round(1) %}
+      
+      {# PHASE 2: Apply universal target achievement logic #}
+      {% set analysis = analyze_target_achievement(current_temp_float, target_temp_float, natural_cooling_rate, time_available, now.strftime('%H:%M:%S'), bedtime_temp_natural) | from_json %}
+      {% set strategy.target_time = analysis.target_time %}
+      {% set strategy.show_target_time = analysis.show_target_time %}
+      {% set strategy.cooling_hours = cooling_hours %}
+      {% set strategy.natural_cooling_rate = natural_cooling_rate %}
+    {% endif %}
+  {% elif current_window_open and has_temp_advantage and aqi_ok and wind_adequate %}
+    {% set natural_potential = natural_cooling_rate * time_available %}
+    {% if natural_potential >= cooling_deficit_float %}
+      {% set strategy.method = 'Keep window open' %}
+      {% set strategy.timing = '' %}
+      {% set strategy.reasoning = 'Natural cooling in progress and sufficient' %}
+      {% set cooling_hours = cooling_deficit_float / natural_cooling_rate %}
+      {% set actual_cooling_time = [time_available, cooling_hours] | min %}
+      {% set actual_cooling_achieved = natural_cooling_rate * actual_cooling_time %}
+      {% set bedtime_temp_natural = uncooled_bedtime_temp - actual_cooling_achieved %}
+      {% set strategy.predicted_temp = bedtime_temp_natural | round(1) %}
+      
+      {# PHASE 2: Apply universal target achievement logic #}
+      {% set analysis = analyze_target_achievement(current_temp_float, target_temp_float, natural_cooling_rate, time_available, now.strftime('%H:%M:%S'), bedtime_temp_natural) | from_json %}
+      {% set strategy.target_time = analysis.target_time %}
+      {% set strategy.show_target_time = analysis.show_target_time %}
+      {% set strategy.cooling_hours = cooling_hours %}
+      {% set strategy.natural_cooling_rate = natural_cooling_rate %}
+    {% endif %}
+  {% endif %}
+
+  {# Priority 2: Fan cooling (if natural didn't work) #}
+  {% if strategy.method == '' %}
+    {% if has_temp_advantage and aqi_ok and not current_fan_running %}
+      {% set fan_potential = fan_cooling_rate * time_available %}
+      {% if fan_potential >= cooling_deficit_float %}
+        {% set strategy.method = 'Start fan' %}
+        {% set strategy.timing = 'NOW!' %}
+        {% set strategy.reasoning = 'Fan cooling sufficient for target achievement' %}
+        {% set cooling_hours = cooling_deficit_float / fan_cooling_rate %}
+        {% set bedtime_temp_fan = uncooled_bedtime_temp - fan_potential %}
+        {% set strategy.predicted_temp = bedtime_temp_fan %}
+        
+        {# PHASE 2: Apply universal target achievement logic #}
+        {% set analysis = analyze_target_achievement(current_temp_float, target_temp_float, fan_cooling_rate, time_available, now.strftime('%H:%M:%S'), bedtime_temp_fan) | from_json %}
+        {% set strategy.target_time = analysis.target_time %}
+        {% set strategy.show_target_time = analysis.show_target_time %}
+        {% set strategy.cooling_hours = cooling_hours %}
+        {% set strategy.fan_cooling_rate = fan_cooling_rate %}
+      {% endif %}
+    {% elif current_fan_running and has_temp_advantage and aqi_ok %}
+      {% set fan_potential = fan_cooling_rate * time_available %}
+      {% if fan_potential >= cooling_deficit_float %}
+        {% set strategy.method = 'Continue fan' %}
+        {% set strategy.timing = '' %}
+        {% set strategy.reasoning = 'Fan cooling in progress and sufficient' %}
+        {% set cooling_hours = cooling_deficit_float / fan_cooling_rate %}
+        {% set bedtime_temp_fan = uncooled_bedtime_temp - fan_potential %}
+        {% set strategy.predicted_temp = bedtime_temp_fan %}
+        
+        {# PHASE 2: Apply universal target achievement logic #}
+        {% set analysis = analyze_target_achievement(current_temp_float, target_temp_float, fan_cooling_rate, time_available, now.strftime('%H:%M:%S'), bedtime_temp_fan) | from_json %}
+        {% set strategy.target_time = analysis.target_time %}
+        {% set strategy.show_target_time = analysis.show_target_time %}
+        {% set strategy.cooling_hours = cooling_hours %}
+        {% set strategy.fan_cooling_rate = fan_cooling_rate %}
+      {% endif %}
+    {% endif %}
+  {% endif %}
+
+  {# Priority 3: AC cooling (if natural and fan didn't work) #}
+  {% if strategy.method == '' %}
+    {% if not ac_currently_active %}
+      {% if ac_will_achieve_target %}
+        {# PHASE 3: AC with sophisticated hour-by-hour planning but universal target logic #}
+        
+        {# Hour-by-hour AC simulation for precise timing #}
+        {% set cooling_ns = namespace(
+          remaining_cooling=cooling_deficit_float,
+          simulation_temp=current_temp_float,
+          hours_needed=0,
+          start_hour=none,
+          plan=[]
+        ) %}
+        
+        {# Work backwards from bedtime to find optimal start time #}
+        {% set ac_planning_ns = namespace(processed_hours=[]) %}
+        {% for i in range(processed_forecast | length) %}
+          {% set hour_index = (processed_forecast | length) - 1 - i %}
+          {% if hour_index >= 0 and hour_index < (processed_forecast | length) %}
+            {% set hour_data = processed_forecast[hour_index] %}
+            
+            {% if hour_data.datetime_local < bedtime_target_local %}
+              
+              {% set outdoor_temp_hour = hour_data.temperature | float %}
+              {% set heat_gain_rate_hour = calculate_heat_gain(hour_data, cooling_ns.simulation_temp) | float %}
+              {% set ac_cooling_rate_hour = dynamic_ac_cooling_rate(outdoor_temp_hour, cooling_ns.simulation_temp) | float %}
+              {% set net_cooling_hour = (ac_cooling_rate_hour | float) - (heat_gain_rate_hour | float) %}
+              
+              {% if net_cooling_hour > 0 and cooling_ns.remaining_cooling > 0 %}
+                {% set cooling_this_hour = [net_cooling_hour, cooling_ns.remaining_cooling] | min | float %}
+                {% set cooling_ns.remaining_cooling = (cooling_ns.remaining_cooling | float) - (cooling_this_hour | float) %}
+                {% set cooling_ns.simulation_temp = (cooling_ns.simulation_temp | float) - (cooling_this_hour | float) %}
+                {% set cooling_ns.hours_needed = (cooling_ns.hours_needed | int) + 1 %}
+                {% set cooling_ns.start_hour = hour_data.datetime_local %}
+                
+                {% set cooling_ns.plan = cooling_ns.plan + [{
+                  'hour': hour_data.hour_local | int,
+                  'datetime': hour_data.datetime_local,
+                  'outdoor_temp': outdoor_temp_hour | float,
+                  'heat_gain_rate': heat_gain_rate_hour | float,
+                  'ac_cooling_rate': ac_cooling_rate_hour | float,
+                  'net_cooling': net_cooling_hour | float,
+                  'cooling_applied': cooling_this_hour | float,
+                  'temp_after': cooling_ns.simulation_temp | float
+                }] %}
+                
+                {% if cooling_ns.remaining_cooling <= 0.1 %}
+                  {% break %}
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        
+        {# Determine AC start timing #}
+        {% if cooling_ns.start_hour %}
+          {% set ac_start_time_str = cooling_ns.start_hour.strftime('%I:%M%p') | lower %}
+          {% set strategy.timing = 'at ' + ac_start_time_str %}
+        {% else %}
+          {% set strategy.timing = 'NOW!' %}
+        {% endif %}
+        
+        {% set strategy.method = 'Start AC' %}
+        {% set strategy.reasoning = 'AC needed for target achievement - sophisticated planning applied' %}
+        
+        {# Calculate average AC cooling rate for universal logic #}
+        {% if cooling_ns.plan | length > 0 %}
+          {% set total_cooling_rate = cooling_ns.plan | sum(attribute='net_cooling') %}
+          {% set ac_avg_rate = total_cooling_rate / (cooling_ns.plan | length) %}
+        {% else %}
+          {% set ac_avg_rate = ac_cooling_rate %}
+        {% endif %}
+        
+        {# Apply universal target achievement logic #}
+        {% set ac_cooling_hours = cooling_ns.hours_needed %}
+        {% set bedtime_temp_ac = uncooled_bedtime_temp - cooling_deficit_float %}
+        {% set strategy.predicted_temp = bedtime_temp_ac %}
+        
+        {% set analysis = analyze_target_achievement(current_temp_float, target_temp_float, ac_avg_rate, ac_cooling_hours, now.strftime('%H:%M:%S'), bedtime_temp_ac) | from_json %}
+        {% set strategy.target_time = analysis.target_time %}
+        {% set strategy.show_target_time = analysis.show_target_time %}
+        
+        {# Debug data for AC planning #}
+        {% set ac_avg_rate_debug = ac_avg_rate %}
+        {% set ac_cooling_hours_debug = ac_cooling_hours %}
+        {% set ac_hours_needed_debug = cooling_ns.hours_needed %}
+        {% set ac_plan_debug = cooling_ns.plan %}
+        
+      {% else %}
+        {% set strategy.method = 'Start AC' %}
+        {% set strategy.timing = 'NOW!' %}
+        {% set strategy.reasoning = 'AC needed but may not achieve target by bedtime' %}
+        {% set strategy.predicted_temp = uncooled_bedtime_temp - (ac_cooling_rate * time_available) %}
+      {% endif %}
+    {% else %}
+      {% set strategy.method = 'Continue AC' %}
+      {% set strategy.timing = '' %}
+      {% set strategy.reasoning = 'AC already running' %}
+      {% set strategy.predicted_temp = uncooled_bedtime_temp - (ac_cooling_rate * time_available) %}
+      
+      {# Apply universal target achievement logic for continuing AC #}
+      {% set analysis = analyze_target_achievement(current_temp_float, target_temp_float, ac_cooling_rate, time_available, now.strftime('%H:%M:%S'), strategy.predicted_temp) | from_json %}
+      {% set strategy.target_time = analysis.target_time %}
+      {% set strategy.show_target_time = analysis.show_target_time %}
+    {% endif %}
+  {% endif %}
+
+  {# Fallback if no strategy determined #}
+  {% if strategy.method == '' %}
+    {% set strategy.method = 'Start AC' %}
+    {% set strategy.timing = 'NOW!' %}
+    {% set strategy.reasoning = 'Fallback - no other cooling options available' %}
+    {% set strategy.predicted_temp = uncooled_bedtime_temp - (ac_cooling_rate * time_available) %}
+  {% endif %}
+{% endif %}
+
+{# =========================== OVERRIDE LOGIC =========================== #}
+
+{# Override: Turn off AC if natural/fan cooling is available and AC is running #}
+{% if ac_currently_active and has_temp_advantage and aqi_ok %}
+  {% set natural_or_fan_potential = fan_cooling_rate * time_available if not wind_adequate else natural_cooling_rate * time_available %}
+  {% if natural_or_fan_potential >= cooling_deficit_float %}
+    {% set better_method = 'Open window' if wind_adequate and not current_window_open else ('Start fan' if not current_fan_running else 'Continue current cooling') %}
+    {% if better_method != 'Continue current cooling' %}
+      {% set strategy.method = 'Turn off AC, then ' + better_method %}
+      {% set strategy.timing = 'NOW!' %}
+      {% set strategy.reasoning = 'AC running but natural/fan cooling is sufficient and more efficient' %}
+    {% endif %}
+  {% endif %}
+{% endif %}
+
+{# =========================== OUTPUT GENERATION =========================== #}
+
+{# GLOBAL PHYSICS FIX: Catch impossible temperatures from any calculation #}
+{% if strategy.predicted_temp < 50 %}
+  {# Temperature is impossible - apply physics constraints #}
+  {% set max_temp_drop = (uncooled_bedtime_temp | float) - (outdoor_temp_float | float) %}
+  {% set max_realistic_cooling = max_temp_drop * 0.6 %}
+  {% set realistic_bedtime_temp = (uncooled_bedtime_temp | float) - max_realistic_cooling %}
+  {% set strategy.predicted_temp = realistic_bedtime_temp | round(1) %}
+{% endif %}
+
+{# Format the final recommendation #}
+{% set recommendation = strategy.method %}
+{% if strategy.timing %}
+  {% set recommendation = recommendation + ' ' + strategy.timing %}
+{% endif %}
+
+{# Create target time display #}
+{% if strategy.show_target_time is defined and strategy.show_target_time %}
+  {% set target_display = ', ' + target_temp_float | round | string + '° by ' + strategy.target_time %}
+{% else %}
+  {% set target_display = '' %}
+{% endif %}
+
+{# Final output with prediction #}
+{% set final_output = recommendation + ' | ' + strategy.predicted_temp | round | string + '° by ' + bedtime_display + target_display %}
+
+{# =========================== TEMPLATE OUTPUT =========================== #}
+
+{{ final_output }}
+
+{# =========================== DEBUG OUTPUT =========================== #}
+
+{% if debug %}
+
+SMART BEDROOM COOLING DEBUG
+**{{ 'SIMULATION' if simulation_mode else 'LIVE' }} MODE** | Current time: {{ now.strftime('%Y-%m-%d %I:%M%p') | lower }}
+Current: {{ current_temp | round(1) }}°F | Target: {{ target_temp | round }}°F | Bedtime: {{ bedtime_display }}
+Outdoor: {{ outdoor_temp | round(1) }}°F | Time to bedtime: {{ hours_to_bedtime | round(1) }}h
+
+CURRENT CONDITIONS:
+• Cloud cover: {{ cloud_coverage | round }}% | UV index: {{ uv_index | round(1) }}
+• AQI: {{ aqi_value | round }} | Wind: {{ current_wind | round(1) }}mph
+
+SENSOR STATUS:
+• Window: {{ 'OPEN' if current_window_open else 'CLOSED' }} ({{ window_sensor }})
+• Fan: {{ 'ON' if current_fan_running else 'OFF' }} ({{ fan_sensor }})  
+• Bedroom AC: {{ 'ON' if current_ac_running else 'OFF' }} ({{ ac_sensor }})
+
+ENVIRONMENTAL CONDITIONS:
+• Has temp advantage: {{ has_temp_advantage }} ({{ temp_differential_required }}°F req'd, {{ (current_temp_float - outdoor_temp_float) | round(1) }}°F actual)
+• AQI OK: {{ aqi_ok }} ({{ aqi_value | round }} ≤ {{ aqi_threshold | round }})
+• Wind adequate: {{ wind_adequate }} ({{ current_wind | round(1) }}mph ≥ {{ min_wind_natural | round(1) }}mph)
+• Natural cooling available: {{ has_temp_advantage and aqi_ok }}
+• AQI OK: {{ current_ac_running and has_temp_advantage and aqi_ok }}
+• Wind adequate: {{ wind_adequate }} (wind: {{ current_wind }}mph, min: {{ min_wind_natural }}mph)
+• Current temp advantage: {{ (current_temp_float - outdoor_temp_float) | round(1) }}°F
+
+STRATEGY FLOW DEBUG:
+• fan_handling_cooling: {{ fan_handling_cooling }}
+• window_handling_cooling: {{ window_handling_cooling }}  
+• ac_handling_cooling: {{ ac_handling_cooling }}
+• ac_currently_active: {{ ac_currently_active }}
+• ac_will_achieve_target: {{ ac_will_achieve_target }}
+• needs_cooling: {{ needs_cooling }}
+• time_available: {{ time_available }}
+• is_past_bedtime: {{ is_past_bedtime }}
+• is_next_day_scenario: {{ is_next_day_scenario }}
+
+GROUNDED TEMPERATURE PROGRESSION (Starting from Current Reality):
+{% if temp_predictions | length > 0 %}
+{% for pred in temp_predictions -%}
+• {{ pred.hour }}:00: {{ (pred.temperature - (pred.net_change | float)) | round(1) }}°F → {{ pred.temperature }}°F ({{ pred.outdoor_temp }}°F outside, {{ ((pred.temperature - pred.net_change) - pred.outdoor_temp) | round(1) }}°F advantage, {{ pred.net_change | round(1) }}°F/hr net change)
+  - Heat gain: +{{ pred.heat_gain_rate | round(1) }}°F/hr | Natural cooling: -{{ ((pred.heat_gain_rate | float) - (pred.net_change | float)) | round(1) }}°F/hr
+  - Conditions: {{ pred.conditions.cloud_coverage | round }}% clouds, UV {{ pred.conditions.uv_index | round(1) }}
+{% endfor -%}
+{% else %}
+• No forecast data available - using current conditions
+{% endif %}
+
+REALITY-BASED PREDICTION:
+• Starting from CURRENT ACTUAL: {{ current_temp_float }}°F
+• Realistic bedtime temperature: {{ uncooled_bedtime_temp | round(1) }}°F
+• Cooling deficit: {{ cooling_deficit_float }}°F ({{ uncooled_bedtime_temp | round(1) }}°F - {{ target_temp_float }}°F target)
+• Needs cooling: {{ needs_cooling }}
+
+COOLING RATES & POTENTIAL:
+• Natural cooling: {{ natural_cooling_rate }}°F/hr ({{ (natural_cooling_rate * time_available) | round(1) }}°F potential)
+• Fan cooling: {{ fan_cooling_rate }}°F/hr ({{ (fan_cooling_rate * time_available) | round(1) }}°F potential)  
+• AC cooling: {{ ac_cooling_rate }}°F/hr ({{ (ac_cooling_rate * time_available) | round(1) }}°F potential)
+
+DEVICE STATE AWARENESS (Phase 4):
+• Fan handling cooling: {{ fan_handling_cooling }}
+• Window handling cooling: {{ window_handling_cooling }}
+• AC handling cooling: {{ ac_handling_cooling }}
+
+PHASE ANALYSIS:
+{% if strategy.method in ['Open window', 'Keep window open'] %}
+PHASE 2 APPLIED - Using Universal Target Logic:
+• Strategy: {{ strategy.method }} {{ strategy.timing }}
+• Natural cooling rate: {{ strategy.natural_cooling_rate if strategy.natural_cooling_rate is defined else 'N/A' }}°F/hr
+• Cooling hours: {{ strategy.cooling_hours if strategy.cooling_hours is defined else 'N/A' }}h
+• Bedtime temp: {{ strategy.predicted_temp }}°F
+• Target time: {{ strategy.target_time if strategy.target_time is defined else 'N/A' }}
+• Show target time: {{ strategy.show_target_time if strategy.show_target_time is defined else 'N/A' }}
+{% elif strategy.method in ['Start fan', 'Continue fan'] %}
+PHASE 2 APPLIED - Using Universal Target Logic:
+• Strategy: {{ strategy.method }} {{ strategy.timing }}
+• Fan cooling rate: {{ strategy.fan_cooling_rate if strategy.fan_cooling_rate is defined else 'N/A' }}°F/hr
+• Cooling hours: {{ strategy.cooling_hours if strategy.cooling_hours is defined else 'N/A' }}h
+• Bedtime temp: {{ strategy.predicted_temp }}°F
+• Target time: {{ strategy.target_time if strategy.target_time is defined else 'N/A' }}
+• Show target time: {{ strategy.show_target_time if strategy.show_target_time is defined else 'N/A' }}
+{% elif strategy.method in ['Start AC', 'Continue AC'] %}
+PHASE 3 APPLIED - Using Universal Target Logic for AC:
+• Strategy: {{ strategy.method }} {{ strategy.timing }}
+• AC average cooling rate: {{ ac_avg_rate_debug if ac_avg_rate_debug is defined else 'N/A' }}°F/hr
+• AC cooling hours: {{ ac_cooling_hours_debug if ac_cooling_hours_debug is defined else 'N/A' }}h
+• AC hours needed: {{ ac_hours_needed_debug if ac_hours_needed_debug is defined else 'N/A' }}h
+• Bedtime temp: {{ strategy.predicted_temp }}°F
+• Target time: {{ strategy.target_time if strategy.target_time is defined else 'N/A' }}
+• Show target time: {{ strategy.show_target_time if strategy.show_target_time is defined else 'N/A' }}
+{% if ac_plan_debug is defined and ac_plan_debug | length > 0 %}
+• AC Plan ({{ ac_plan_debug | length }} hours):
+{% for hour_plan in ac_plan_debug %}
+  - {{ hour_plan.hour }}:00: {{ hour_plan.net_cooling | round(1) }}°F/hr ({{ hour_plan.outdoor_temp }}°F outside) → {{ hour_plan.temp_after | round(1) }}°F
+{% endfor %}
+{% endif %}
+{% else %}
+LEGACY LOGIC STILL ACTIVE:
+• Strategy method: {{ strategy.method }}
+• Strategy reasoning: {{ strategy.reasoning }}
+{% endif %}
+
+OVERRIDE LOGIC DEBUG:
+• AC active AND has temp advantage AND AQI OK: {{ current_ac_running and has_temp_advantage and aqi_ok }}
+• Wind adequate: {{ wind_adequate }} (wind: {{ current_wind }}mph, min: {{ min_wind_natural }}mph)
+• Current temp advantage: {{ (current_temp_float - outdoor_temp_float) | round(1) }}°F
+
+FINAL STRATEGY:
+• Method: {{ strategy.method }}
+• Timing: {{ strategy.timing if strategy.timing else 'N/A' }}
+• Predicted bedtime temp: {{ strategy.predicted_temp }}°F
+• Reasoning: {{ strategy.reasoning }}
+
+{% endif %}
