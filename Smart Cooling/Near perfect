@@ -32,7 +32,8 @@
 
 {# Debug and simulation controls #}
 {% set debug = true %}
-{% set simulation_mode = false %}
+{% set simulation_mode = true %}
+{% set sim_type = 'cool' %}
 
 {# Helper function - MOVED UP FOR UNIVERSAL ACCESS #}
 {% macro safe_float(value, default) -%}
@@ -52,52 +53,54 @@
 
 
 {# EXACT SIMULATION DATA - DO NOT CHANGE #}
-{% set sim_current_temp = 75 %}
-{% set sim_outdoor_temp = 68 %}
-{% set sim_indoor_humidity = 55 %}
-{% set sim_current_time_local = '2025-07-28 20:00' %}
-{% set sim_aqi = 35 %}
-{% set sim_wind = 6.0 %}
-{% set sim_cloud_cover = 40 %}
-{% set sim_uv = 3 %}
-{% set sim_house_ac_setpoint = 78 %}
-{% set sim_window_sensor = true %}
-{% set sim_fan_sensor = true %}
-{% set sim_ac_sensor = false %}
-{% set sim_forecast = [
-  {'datetime_local': '2025-07-28 20:00', 'temperature': 68, 'humidity': 62, 'cloud_coverage': 60, 'wind_speed': 6, 'uv_index': 0},
-  {'datetime_local': '2025-07-28 21:00', 'temperature': 66, 'humidity': 68, 'cloud_coverage': 65, 'wind_speed': 5, 'uv_index': 0},
-  {'datetime_local': '2025-07-28 22:00', 'temperature': 64, 'humidity': 72, 'cloud_coverage': 70, 'wind_speed': 4, 'uv_index': 0},
-  {'datetime_local': '2025-07-28 23:00', 'temperature': 62, 'humidity': 75, 'cloud_coverage': 75, 'wind_speed': 3, 'uv_index': 0}
-] %}
-
+{%if sim_type == 'cool' %}
+  {% set sim_current_temp = 75 %}
+  {% set sim_outdoor_temp = 68 %}
+  {% set sim_indoor_humidity = 55 %}
+  {% set sim_current_time_local = '2025-07-28 22:00' %}
+  {% set sim_aqi = 35 %}
+  {% set sim_wind = 6.0 %}
+  {% set sim_cloud_cover = 40 %}
+  {% set sim_uv = 3 %}
+  {% set sim_house_ac_setpoint = 78 %}
+  {% set sim_window_sensor = false %}
+  {% set sim_fan_sensor = false %}
+  {% set sim_ac_sensor = false %}
+  {% set sim_forecast = [
+    {'datetime_local': '2025-07-28 20:00', 'temperature': 68, 'humidity': 62, 'cloud_coverage': 60, 'wind_speed': 6, 'uv_index': 0},
+    {'datetime_local': '2025-07-28 21:00', 'temperature': 66, 'humidity': 68, 'cloud_coverage': 65, 'wind_speed': 5, 'uv_index': 0},
+    {'datetime_local': '2025-07-28 22:00', 'temperature': 64, 'humidity': 72, 'cloud_coverage': 70, 'wind_speed': 4, 'uv_index': 0},
+    {'datetime_local': '2025-07-28 23:00', 'temperature': 62, 'humidity': 75, 'cloud_coverage': 75, 'wind_speed': 3, 'uv_index': 0}
+  ] %}
+{% else %}
 {# Hot day simulation - high cooling demand #}
-{% set sim_current_temp = 75 %}
-{% set sim_outdoor_temp = 82 %}
-{% set sim_indoor_humidity = 45 %}
-{% set sim_current_time_local = '2025-07-28 11:00' %}
-{% set sim_aqi = 65 %}
-{% set sim_wind = 3.0 %}
-{% set sim_cloud_cover = 10 %}
-{% set sim_uv = 4 %}
-{% set sim_house_ac_setpoint = 78 %}
-{% set sim_window_sensor = true %}
-{% set sim_fan_sensor = true %}
-{% set sim_ac_sensor = false %}
-{% set sim_forecast = [
-  {'datetime_local': '2025-07-28 12:00', 'temperature': 86, 'humidity': 42, 'cloud_coverage': 8, 'wind_speed': 3.5, 'uv_index': 6},
-  {'datetime_local': '2025-07-28 13:00', 'temperature': 90, 'humidity': 38, 'cloud_coverage': 5, 'wind_speed': 4, 'uv_index': 8},
-  {'datetime_local': '2025-07-28 14:00', 'temperature': 93, 'humidity': 35, 'cloud_coverage': 3, 'wind_speed': 3, 'uv_index': 9},
-  {'datetime_local': '2025-07-28 15:00', 'temperature': 95, 'humidity': 33, 'cloud_coverage': 2, 'wind_speed': 2.5, 'uv_index': 10},
-  {'datetime_local': '2025-07-28 16:00', 'temperature': 94, 'humidity': 34, 'cloud_coverage': 4, 'wind_speed': 2, 'uv_index': 9},
-  {'datetime_local': '2025-07-28 17:00', 'temperature': 92, 'humidity': 36, 'cloud_coverage': 8, 'wind_speed': 3, 'uv_index': 7},
-  {'datetime_local': '2025-07-28 18:00', 'temperature': 89, 'humidity': 40, 'cloud_coverage': 12, 'wind_speed': 4, 'uv_index': 5},
-  {'datetime_local': '2025-07-28 19:00', 'temperature': 85, 'humidity': 45, 'cloud_coverage': 15, 'wind_speed': 5, 'uv_index': 2},
-  {'datetime_local': '2025-07-28 20:00', 'temperature': 82, 'humidity': 50, 'cloud_coverage': 20, 'wind_speed': 6, 'uv_index': 1},
-  {'datetime_local': '2025-07-28 21:00', 'temperature': 79, 'humidity': 55, 'cloud_coverage': 25, 'wind_speed': 5, 'uv_index': 0},
-  {'datetime_local': '2025-07-28 22:00', 'temperature': 77, 'humidity': 58, 'cloud_coverage': 30, 'wind_speed': 4, 'uv_index': 0},
-  {'datetime_local': '2025-07-28 23:00', 'temperature': 75, 'humidity': 62, 'cloud_coverage': 35, 'wind_speed': 3, 'uv_index': 0}
-] %}
+  {% set sim_current_temp = 75 %}
+  {% set sim_outdoor_temp = 82 %}
+  {% set sim_indoor_humidity = 45 %}
+  {% set sim_current_time_local = '2025-07-28 11:00' %}
+  {% set sim_aqi = 65 %}
+  {% set sim_wind = 3.0 %}
+  {% set sim_cloud_cover = 10 %}
+  {% set sim_uv = 4 %}
+  {% set sim_house_ac_setpoint = 78 %}
+  {% set sim_window_sensor = true %}
+  {% set sim_fan_sensor = true %}
+  {% set sim_ac_sensor = false %}
+  {% set sim_forecast = [
+    {'datetime_local': '2025-07-28 12:00', 'temperature': 86, 'humidity': 42, 'cloud_coverage': 8, 'wind_speed': 3.5, 'uv_index': 6},
+    {'datetime_local': '2025-07-28 13:00', 'temperature': 90, 'humidity': 38, 'cloud_coverage': 5, 'wind_speed': 4, 'uv_index': 8},
+    {'datetime_local': '2025-07-28 14:00', 'temperature': 93, 'humidity': 35, 'cloud_coverage': 3, 'wind_speed': 3, 'uv_index': 9},
+    {'datetime_local': '2025-07-28 15:00', 'temperature': 95, 'humidity': 33, 'cloud_coverage': 2, 'wind_speed': 2.5, 'uv_index': 10},
+    {'datetime_local': '2025-07-28 16:00', 'temperature': 94, 'humidity': 34, 'cloud_coverage': 4, 'wind_speed': 2, 'uv_index': 9},
+    {'datetime_local': '2025-07-28 17:00', 'temperature': 92, 'humidity': 36, 'cloud_coverage': 8, 'wind_speed': 3, 'uv_index': 7},
+    {'datetime_local': '2025-07-28 18:00', 'temperature': 89, 'humidity': 40, 'cloud_coverage': 12, 'wind_speed': 4, 'uv_index': 5},
+    {'datetime_local': '2025-07-28 19:00', 'temperature': 85, 'humidity': 45, 'cloud_coverage': 15, 'wind_speed': 5, 'uv_index': 2},
+    {'datetime_local': '2025-07-28 20:00', 'temperature': 82, 'humidity': 50, 'cloud_coverage': 20, 'wind_speed': 6, 'uv_index': 1},
+    {'datetime_local': '2025-07-28 21:00', 'temperature': 79, 'humidity': 55, 'cloud_coverage': 25, 'wind_speed': 5, 'uv_index': 0},
+    {'datetime_local': '2025-07-28 22:00', 'temperature': 77, 'humidity': 58, 'cloud_coverage': 30, 'wind_speed': 4, 'uv_index': 0},
+    {'datetime_local': '2025-07-28 23:00', 'temperature': 75, 'humidity': 62, 'cloud_coverage': 35, 'wind_speed': 3, 'uv_index': 0}
+  ] %}
+{%endif%}
 {# ========== END USER CONFIGURATION ========== #}
 
 {#Get Dynamic values from entities in helpers #}
