@@ -452,70 +452,158 @@ Never
 {% else %}
   {# SMART TIMING FAN COOLING WITH OPPORTUNITY EVALUATION #}
   {% if has_temp_advantage and aqi_ok %}
-    {# SMART TIMING: Evaluate opportunities based on cooling effectiveness #}
-    {% set eval_ns = namespace(best_opp=none, best_potential=0, current_potential=0) %}
+    {# SMART TIMING: Evaluate opportunities with proper algorithms #}
+    {% set eval_ns = namespace(
+      sufficient_opportunities=[],
+      all_opportunities=[],
+      current_potential=0,
+      best_option=none,
+      strategy_type='none'
+    ) %}
     
     {# Evaluate current conditions #}
     {% set current_fan_rate = calculate_fan_cooling_rate(outdoor_temp_float, current_temp_float) | float %}
     {% set current_cooling_potential = current_fan_rate * time_available %}
     {% set eval_ns.current_potential = current_cooling_potential %}
     
+    {# Add current conditions to evaluation #}
+    {% set current_option = {
+      'type': 'current',
+      'timing': 'NOW!',
+      'rate': current_fan_rate,
+      'hours': time_available,
+      'potential': current_cooling_potential,
+      'final_temp': (uncooled_bedtime_temp | float) - current_cooling_potential,
+      'hour_display': 'NOW'
+    } %}
+    {% set eval_ns.all_opportunities = eval_ns.all_opportunities + [current_option] %}
+    
     {# Evaluate forecast opportunities #}
     {% if natural_window_ns.opportunities | length > 0 %}
-      {% set opportunity_eval_ns = namespace(evaluated_opps=[]) %}
+      {% set opportunity_eval_ns = namespace(processed=[]) %}
       {% for opp in natural_window_ns.opportunities %}
         {% set opp_cooling_rate = calculate_fan_cooling_rate(opp.outdoor_temp, opp.predicted_indoor) | float %}
         {% set opp_cooling_hours = (bedtime_target_local - bedtime_target_local.replace(hour=opp.hour, minute=0, second=0, microsecond=0)).total_seconds() / 3600 %}
         {% if opp_cooling_hours > 0 %}
           {% set opp_cooling_potential = opp_cooling_rate * opp_cooling_hours %}
-        {% else %}
-          {% set opp_cooling_potential = 0 %}
-        {% endif %}
-        
-        {% if eval_ns.best_opp is none or opp_cooling_potential > eval_ns.best_potential %}
-          {% set eval_ns.best_opp = opp %}
-          {% set eval_ns.best_potential = opp_cooling_potential %}
+          {% set opp_final_temp = (uncooled_bedtime_temp | float) - opp_cooling_potential %}
+          
+          {% set forecast_option = {
+            'type': 'forecast',
+            'timing': 'at ' + opp.hour | string + ':00pm' if opp.hour >= 12 else 'at ' + opp.hour | string + ':00am',
+            'rate': opp_cooling_rate,
+            'hours': opp_cooling_hours,
+            'potential': opp_cooling_potential,
+            'final_temp': opp_final_temp,
+            'hour_display': opp.hour | string + ':00',
+            'temp_advantage': opp.temp_advantage
+          } %}
+          
+          {% set eval_ns.all_opportunities = eval_ns.all_opportunities + [forecast_option] %}
+          
+          {# Check if this option can achieve target #}
+          {% if opp_cooling_potential >= cooling_deficit_float %}
+            {% set eval_ns.sufficient_opportunities = eval_ns.sufficient_opportunities + [forecast_option] %}
+          {% endif %}
         {% endif %}
       {% endfor %}
     {% endif %}
     
-    {# Choose between current and forecast opportunity #}
-    {% if eval_ns.best_opp and eval_ns.best_potential > (eval_ns.current_potential * 1.1) %}
-      {# Forecast opportunity is significantly better #}
-      {% set selected_opp = eval_ns.best_opp %}
-      {% set fan_cooling_rate = calculate_fan_cooling_rate(selected_opp.outdoor_temp, selected_opp.predicted_indoor) | float %}
-      {% set actual_cooling_hours = (bedtime_target_local - bedtime_target_local.replace(hour=selected_opp.hour, minute=0, second=0, microsecond=0)).total_seconds() / 3600 %}
-      {% set fan_potential = fan_cooling_rate * actual_cooling_hours %}
-      {% set cooling_timing = 'at ' + selected_opp.hour | string + ':00pm' if selected_opp.hour >= 12 else 'at ' + selected_opp.hour | string + ':00am' %}
-    {% else %}
-      {# Current conditions are best #}
-      {% set fan_cooling_rate = current_fan_rate %}
-      {% set actual_cooling_hours = time_available %}
-      {% set fan_potential = eval_ns.current_potential %}
-      {% set cooling_timing = 'NOW!' %}
+    {# Check if current conditions are sufficient #}
+    {% if current_cooling_potential >= cooling_deficit_float %}
+      {% set eval_ns.sufficient_opportunities = eval_ns.sufficient_opportunities + [current_option] %}
     {% endif %}
     
-    {# Only recommend if sufficient cooling potential #}
-    {% if fan_potential >= cooling_deficit_float %}
+    {# ALGORITHM 1: Smart Timing (when sufficient options exist) #}
+    {% if eval_ns.sufficient_opportunities | length > 0 %}
+      {% set eval_ns.strategy_type = 'sufficient' %}
+      
+      {# Find shortest runtime among sufficient options #}
+      {% set shortest_ns = namespace(best_option=none, shortest_hours=999) %}
+      {% for option in eval_ns.sufficient_opportunities %}
+        {% if (option.hours | float) < shortest_ns.shortest_hours %}
+          {% set shortest_ns.best_option = option %}
+          {% set shortest_ns.shortest_hours = option.hours | float %}
+        {% endif %}
+      {% endfor %}
+      
+      {# Apply efficiency factor - only wait if forecast is significantly better #}
+      {% set efficiency_factor = 2.0 %}
+      {% if shortest_ns.best_option.type == 'current' %}
+        {% set eval_ns.best_option = shortest_ns.best_option %}
+      {% else %}
+        {% set current_hours = current_option.hours | float %}
+        {% set forecast_hours = shortest_ns.best_option.hours | float %}
+        {% if current_hours > (forecast_hours * efficiency_factor) %}
+          {% set eval_ns.best_option = shortest_ns.best_option %}
+        {% else %}
+          {% set eval_ns.best_option = current_option %}
+        {% endif %}
+      {% endif %}
+      
+    {# ALGORITHM 2: Maximize Cooling (when no sufficient options) #}
+    {% else %}
+      {% set eval_ns.strategy_type = 'insufficient' %}
+      
+      {# Find option that gets closest to target without overcooling #}
+      {% set reasonable_minimum = [target_temp_float, outdoor_temp_float + 2.0] | min %}
+      {% set closest_ns = namespace(best_option=none, best_final_temp=999, best_distance=999) %}
+      
+      {% for option in eval_ns.all_opportunities %}
+        {% set final_temp = option.final_temp | float %}
+        {% set distance_from_target = (final_temp - target_temp_float) | abs %}
+        
+        {# Only consider options that don't overcool unreasonably #}
+        {% if final_temp >= reasonable_minimum %}
+          {% if closest_ns.best_option is none or distance_from_target < closest_ns.best_distance %}
+            {% set closest_ns.best_option = option %}
+            {% set closest_ns.best_final_temp = final_temp %}
+            {% set closest_ns.best_distance = distance_from_target %}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+      
+      {# Fallback to current if no reasonable option found #}
+      {% if closest_ns.best_option is none %}
+        {% set eval_ns.best_option = current_option %}
+      {% else %}
+        {% set eval_ns.best_option = closest_ns.best_option %}
+      {% endif %}
+    {% endif %}
+    
+    {# Apply the selected strategy #}
+    {% if eval_ns.best_option %}
       {% if not current_fan_running %}
         {% set strategy.method = 'Start fan' %}
       {% else %}
         {% set strategy.method = 'Continue fan' %}
       {% endif %}
-      {% set strategy.timing = cooling_timing %}
-      {% set strategy.reasoning = 'Fan cooling sufficient for target achievement' %}
+      
+      {% set strategy.timing = eval_ns.best_option.timing %}
+      {% set fan_cooling_rate = eval_ns.best_option.rate %}
+      {% set actual_cooling_hours = eval_ns.best_option.hours %}
+      {% set fan_potential = eval_ns.best_option.potential %}
+      
+      {% if eval_ns.strategy_type == 'sufficient' %}
+        {% set strategy.reasoning = 'Optimal timing - achieves target with minimum runtime' %}
+      {% else %}
+        {% set strategy.reasoning = 'Best available option - gets closest to target' %}
+      {% endif %}
       
       {# Apply realistic cooling with physics constraints #}
       {% set max_temp_drop = (uncooled_bedtime_temp | float) - (outdoor_temp_float | float) %}
       {% set max_realistic_cooling = max_temp_drop * 0.6 %}
       {% set theoretical_cooling = fan_potential %}
-      {% set actual_cooling_achieved = [theoretical_cooling, max_realistic_cooling, cooling_deficit_float] | min %}
+      {% set actual_cooling_achieved = [theoretical_cooling, max_realistic_cooling, cooling_deficit_float * 1.5] | min %}
       {% set bedtime_temp_fan = (uncooled_bedtime_temp | float) - (actual_cooling_achieved | float) %}
       {% set strategy.predicted_temp = bedtime_temp_fan | round(1) %}
       
       {# Store debug info #}
       {% set strategy.fan_cooling_rate = fan_cooling_rate %}
       {% set strategy.cooling_hours = actual_cooling_hours %}
+      {% set strategy.selected_strategy = eval_ns.strategy_type %}
+      {% set strategy.algorithm_used = 'smart_timing' if eval_ns.strategy_type == 'sufficient' else 'maximize_cooling' %}
+      
       {% set analysis = analyze_target_achievement(current_temp_float, target_temp_float, fan_cooling_rate, actual_cooling_hours, now.strftime('%H:%M:%S'), bedtime_temp_fan) | from_json %}
       {% set strategy.target_time = analysis.target_time %}
       {% set strategy.show_target_time = analysis.show_target_time %}
@@ -759,9 +847,9 @@ SMART TIMING ANALYSIS:
     Rate: {{ opp_rate | round(2) }}°F/hr, Hours: {{ opp_hours | round(1) }}h, Potential: {{ opp_potential | round(1) }}°F
 {% endfor %}
 • Current conditions: Rate: {{ (current_fan_rate | float) | round(2) }}°F/hr, Hours: {{ (time_available | float) | round(1) }}h, Potential: {{ (eval_ns.current_potential | float) | round(1) }}°F
-• Best forecast potential: {{ (eval_ns.best_potential | float) | round(1) }}°F
+{#• Best forecast potential: {{ (eval_ns.best_potential | float) | round(1) }}°F #}
 • Current × 1.1 threshold: {{ ((eval_ns.current_potential | float) * 1.1) | round(1) }}°F
-• Should delay: {{ eval_ns.best_opp and (eval_ns.best_potential | float) > ((eval_ns.current_potential | float) * 1.1) }}
+{#• Should delay: {{ eval_ns.best_opp and (eval_ns.best_potential | float) > ((eval_ns.current_potential | float) * 1.1) }} #}
 {% else %}
 • No forecast opportunities found - this explains the "NOW!" timing
 {% endif %}
