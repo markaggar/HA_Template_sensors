@@ -1,0 +1,244 @@
+input_boolean:
+  water_leak_detected:
+    name: Water Leak Detected
+    icon: mdi:water-alert
+
+  leaky_toilet_detected:
+    name: Leaky Toilet Detected
+    icon: mdi:toilet
+
+input_button:
+  acknowledge_water_leak:
+    name: Acknowledge Water Leak
+    icon: mdi:check-decagram
+
+  acknowledge_leaky_toilet:
+    name: Acknowledge Leaky Toilet Alert
+    icon: mdi:check-decagram
+
+input_text:
+  leaky_toilet_burst_timestamps:
+    name: Leaky Toilet Burst Timestamps
+    max: 1024
+
+binary_sensor:
+  - platform: template
+    sensors:
+      high_water_use:
+        friendly_name: "High Water Use"
+        value_template: "{{ states('sensor.droplet_flow_rate')|float(0) > 1.0 }}"
+        icon_template: mdi:water-pump
+
+      slow_nonzero_flow:
+        friendly_name: "Slow, Nonzero Water Flow"
+        value_template: >
+          {% set flow = states('sensor.droplet_flow_rate')|float(0) %}
+          {{ flow > 0 and flow <= 0.25 }}
+        icon_template: mdi:water-alert
+
+      zero_flow:
+        friendly_name: "Zero Water Flow"
+        value_template: "{{ states('sensor.droplet_flow_rate')|float(0) == 0 }}"
+        icon_template: mdi:water-off
+
+      suspected_toilet_burst:
+        friendly_name: "Suspected Toilet Burst"
+        value_template: >
+          {% set flow = states('sensor.droplet_flow_rate')|float(0) %}
+          {{ flow >= 0.5 and flow <= 2.5 }}
+        icon_template: mdi:water-alert
+
+automation:
+  - id: water_leak_detect_and_clear
+    alias: "Water Leak: Detect and Clear"
+    mode: restart
+    description: >
+      Detects leaks in two scenarios:
+      1) Slow, nonzero flow after high water use (>1.0 GPM) persists for 30s.
+      2) Slow, nonzero flow in isolation persists for 60s.
+      Clears leak when flow returns to zero for 10s.
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.high_water_use
+        from: "on"
+        to: "off"
+        id: high_ends
+      - platform: state
+        entity_id: binary_sensor.slow_nonzero_flow
+        to: "on"
+        id: slow_on
+      - platform: state
+        entity_id: binary_sensor.zero_flow
+        to: "on"
+        for:
+          seconds: 10
+        id: zero_flow
+    action:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: high_ends
+              - condition: state
+                entity_id: binary_sensor.slow_nonzero_flow
+                state: "on"
+            sequence:
+              - delay: "00:00:30"
+              - condition: state
+                entity_id: binary_sensor.slow_nonzero_flow
+                state: "on"
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.water_leak_detected
+              - service: notify.all_family
+                data:
+                  message: >
+                    Water flow between 0 and 0.25 GPM persisted for 30 seconds after high water use. Please check for a slow leak or a tap left slightly open.
+                    Last detected burst: {{ now().strftime('%H:%M on %Y-%m-%d') }}
+                  title: "Possible Leak Detected After High Water Use"
+                  data:
+                    tag: water_leak_alert
+                    priority: high
+                    channel: alarm
+                    actions:
+                      - action: "ACKNOWLEDGE_WATER_LEAK"
+                        title: "Acknowledge"
+          - conditions:
+              - condition: trigger
+                id: slow_on
+              - condition: state
+                entity_id: binary_sensor.high_water_use
+                state: "off"
+            sequence:
+              - delay: "00:01:00"
+              - condition: state
+                entity_id: binary_sensor.slow_nonzero_flow
+                state: "on"
+              - service: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.water_leak_detected
+              - service: notify.all_family
+                data:
+                  message: >
+                    Slow, nonzero water flow (0–0.25 GPM) has persisted for 60 seconds. Please check for a slow leak or a tap left slightly open.
+                    Last detected burst: {{ now().strftime('%H:%M on %Y-%m-%d') }}
+                  title: "Possible Leak Detected (Slow Flow)"
+                  data:
+                    tag: water_leak_alert
+                    priority: high
+                    channel: alarm
+                    actions:
+                      - action: "ACKNOWLEDGE_WATER_LEAK"
+                        title: "Acknowledge"
+          - conditions:
+              - condition: trigger
+                id: zero_flow
+            sequence:
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.water_leak_detected
+
+  - id: water_leak_acknowledge_leak
+    alias: "Water Leak: Acknowledge Leak"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_button.acknowledge_water_leak
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: ACKNOWLEDGE_WATER_LEAK
+    action:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.water_leak_detected
+
+  - id: leaky_toilet_rolling_window_detection
+    alias: "Leaky Toilet: Rolling Window Detection"
+    mode: single
+    description: >
+      Detects repeated short, moderate bursts (toilet fills) in a rolling 60-minute window.
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.suspected_toilet_burst
+        to: "on"
+    action:
+      - variables:
+          now_ts: "{{ as_timestamp(now()) }}"
+          old_timestamps: >
+            {% set val = states('input_text.leaky_toilet_burst_timestamps') %}
+            {% if val not in [None, '', 'unknown', 'unavailable'] %}
+              {{ val.split(',') | select('match','^\\d+\\.?\\d*$') | map('float') | list }}
+            {% else %}
+              []
+            {% endif %}
+          recent_timestamps: >
+            {{ old_timestamps | select('>', now_ts - 3600) | list }}
+          new_timestamps: >
+            {{ (recent_timestamps + [now_ts]) | join(',') }}
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.leaky_toilet_burst_timestamps
+        data:
+          value: "{{ new_timestamps }}"
+      - variables:
+          burst_count: >-
+            {% set ts = new_timestamps %}
+            {% if ts is string %}
+              {{ ts.split(',') | select('match','^\\d+\\.?\\d*$') | list | length }}
+            {% elif ts is iterable %}
+              {{ ts | list | length }}
+            {% else %}
+              0
+            {% endif %}
+          last_burst: >-
+            {% set ts = new_timestamps %}
+            {% if ts is string and ',' in ts %}
+              {{ ts.split(',') | last | float | timestamp_custom('%H:%M on %Y-%m-%d') }}
+            {% elif ts is string %}
+              {{ ts | float | timestamp_custom('%H:%M on %Y-%m-%d') }}
+            {% elif ts is iterable %}
+              {{ ts | list | last | float | timestamp_custom('%H:%M on %Y-%m-%d') }}
+            {% else %}
+              "unknown"
+            {% endif %}
+      - if:
+          - condition: template
+            value_template: "{{ burst_count >= 4 }}"
+        then:
+          - service: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.leaky_toilet_detected
+          - service: notify.all_family
+            data:
+              message: >-
+                Detected 4 or more short bursts of moderate water flow (0.5–2.5 GPM, 10–60s) in the last hour.
+                This is often caused by a leaky toilet valve or flapper.
+                Last detected burst: {{ last_burst }}
+              title: "Possible Leaky Toilet Detected"
+              data:
+                tag: leaky_toilet_alert
+                priority: high
+                channel: alarm
+                actions:
+                  - action: "ACKNOWLEDGE_LEAKY_TOILET"
+                    title: "Acknowledge"
+
+  - id: leaky_toilet_acknowledge_alert
+    alias: "Leaky Toilet: Acknowledge Alert"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_button.acknowledge_leaky_toilet
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: ACKNOWLEDGE_LEAKY_TOILET
+    action:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.leaky_toilet_detected
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.leaky_toilet_burst_timestamps
+        data:
+          value: ""
