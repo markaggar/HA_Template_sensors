@@ -23,7 +23,7 @@ You’ll receive actionable notifications (with acknowledgement buttons) and rol
 
 ### 1. **Full Package Method (Recommended)**
 
-1. Place `water_leak_detection.yaml` in your Home Assistant `config/packages` directory.
+1. Place `water_leak_package.yaml` in your Home Assistant `config/packages` directory.
 2. In your `configuration.yaml`, add:
     ```yaml
     homeassistant:
@@ -43,7 +43,7 @@ You’ll receive actionable notifications (with acknowledgement buttons) and rol
 
 1. Copy the `automations.yaml` block into your existing `automations.yaml`.
 2. Reload automations or restart Home Assistant.
-3. **You must manually create the required helpers** (*see entities defined in the package*) or delete the automations from the `water_leak_detection.yaml` package before you save it in the packages folder.
+3. **You must manually create the required helpers** (*see entities defined in the package*) or delete the automations from the `water_leak_package.yaml` package before you save it in the packages folder.
 
 **For tracing:**  
 - Open "Settings → Automations & Scenes → Automations".
