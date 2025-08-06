@@ -1,6 +1,6 @@
-# Leak Detection Package for Home Assistant
+# Leak Detection for Home Assistant
 
-This package provides smart water leak detection using flow sensors and burst pattern recognition, including:
+This sensor package + automations provides smart water leak detection using flow sensors and burst pattern recognition, including:
 - **Low Flow Leak detection**
 - **Leaky Toilet detection with burst session analysis**
 
@@ -117,14 +117,15 @@ This means: **"Found 5 similar bursts, alert will trigger!"**
 
 1. Copy the sensor package YAML to your Home Assistant configuration
 2. Copy the automations YAML to your automations file
-3. Restart Home Assistant
-4. Configure your `sensor.droplet_flow_rate` and `sensor.droplet_water_volume` sources
-5. Test with Developer Tools to fine-tune parameters
+3. Update your water flow and water volume sensor. If you only have a water flow sensor, you'll need to create a helper using an Integral sensor that uses your flow sensor as a source- use "Left Reimann sum" method, precision 3, Max sub-interval of 5 seconds.
+4. Update your parameters. You should flush all your toilets to see how much water they use to refill the tank and use the min and max of these measurements.
+5. Go to Developer Tools/YAML and reload all YAML config
+6. Test with Developer Tools to fine-tune parameters. However, you'll need to update the sensors in the package to persist after HA restarts or YAML reloads.
 
 ---
 
 ## Attribution
 
-Developed for robust water leak detection with real-world testing and optimization.
+Please credit Mark Aggar (HassMan) with any deriviate work. Developed for robust water leak detection with real-world testing and optimization.
 
 ---
