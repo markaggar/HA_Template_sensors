@@ -95,8 +95,41 @@ data:
 
 - **input_booleans:** For detected states and acknowledgements
 - **input_buttons:** For manual acknowledgement (useful for dashboards)
-- **input_text:** For rolling-window burst timestamp storage
+- **input_text:** For rolling-window burst timestamp and volume storage
 - **template binary_sensors:** For high use, slow flow, zero flow, and suspected toilet bursts
+- **template sensors:** Toilet burst session sensor for monitoring leak detection progress
+
+### Toilet Burst Session Sensor
+
+The `sensor.toilet_burst_session` provides enhanced monitoring for leaky toilet detection:
+
+- **State:** Shows count of similar bursts (e.g., "3" means 3 similar bursts detected)
+- **Purpose:** Enables "3 of 4 needed" style monitoring instead of just showing last burst volume
+- **Grouping:** Groups bursts by volume similarity (10% threshold by default)
+- **Window:** Only considers bursts in the last 60 minutes
+
+#### Key Attributes
+
+- `largest_group_count`: Number of bursts in the largest similar group
+- `largest_group_volumes`: List of volumes in that group (e.g., `[1.85, 1.91, 1.88]`)
+- `trigger_threshold`: How many bursts needed to trigger alert (4)
+- `will_trigger_alert`: Boolean indicating if current count would trigger
+- `total_recent_bursts`: Total bursts in last 60 minutes (all volumes)
+- `similarity_threshold`: Current grouping threshold (0.1 = 10%)
+
+#### Example Output
+```yaml
+state: 3
+attributes:
+  largest_group_count: 3
+  largest_group_volumes: [1.85, 1.91, 1.88]
+  trigger_threshold: 4
+  will_trigger_alert: false
+  total_recent_bursts: 4
+  similarity_threshold: 0.1
+```
+
+This shows 3 similar bursts detected, with 4 needed to trigger an alert.
 
 ---
 
