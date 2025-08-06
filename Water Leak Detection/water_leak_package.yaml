@@ -21,6 +21,10 @@ input_text:
     name: Leaky Toilet Burst Timestamps
     max: 1024
 
+  leaky_toilet_burst_volumes:
+    name: Leaky Toilet Burst Volumes
+    max: 1024
+
 binary_sensor:
   - platform: template
     sensors:
@@ -47,6 +51,210 @@ binary_sensor:
           {% set flow = states('sensor.droplet_flow_rate')|float(0) %}
           {{ flow >= 0.5 and flow <= 2.5 }}
         icon_template: mdi:water-alert
+
+template:
+  - sensor:
+      - name: "Toilet Burst Session"
+        unique_id: "toilet_burst_session"
+        unit_of_measurement: "bursts"
+        state: >
+          {% set similarity_threshold = 0.1 %}
+          {% set min_group_size = 1 %}
+          {% set now_ts = as_timestamp(now()) %}
+          
+          {# Get recent timestamps (last 60 minutes) #}
+          {% set timestamps_str = states('input_text.leaky_toilet_burst_timestamps') %}
+          {% set volumes_str = states('input_text.leaky_toilet_burst_volumes') %}
+          
+          {% if timestamps_str not in [None, '', 'unknown', 'unavailable'] and volumes_str not in [None, '', 'unknown', 'unavailable'] %}
+            {% set timestamps = timestamps_str.split(',') | select('match','^\\d+\\.?\\d*$') | map('float') | list %}
+            {% set volumes = volumes_str.split(',') | select('match','^\\d+\\.?\\d*$') | map('float') | list %}
+            
+            {# Filter to recent bursts (last 60 minutes) #}
+            {% set recent_data = [] %}
+            {% for i in range(timestamps|length) %}
+              {% if i < volumes|length and timestamps[i] > now_ts - 3600 %}
+                {% set recent_data = recent_data + [{'timestamp': timestamps[i], 'volume': volumes[i]}] %}
+              {% endif %}
+            {% endfor %}
+            
+            {# Group by volume similarity #}
+            {% set groups = [] %}
+            {% for item in recent_data %}
+              {% set found_group = false %}
+              {% for group in groups %}
+                {% if not found_group %}
+                  {% set avg_volume = (group | map(attribute='volume') | sum) / (group | length) %}
+                  {% if (item.volume - avg_volume) | abs / avg_volume <= similarity_threshold %}
+                    {% set group = group + [item] %}
+                    {% set found_group = true %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+              {% if not found_group %}
+                {% set groups = groups + [[item]] %}
+              {% endif %}
+            {% endfor %}
+            
+            {# Find largest group #}
+            {% set largest_group_size = 0 %}
+            {% for group in groups %}
+              {% if group|length > largest_group_size %}
+                {% set largest_group_size = group|length %}
+              {% endif %}
+            {% endfor %}
+            
+            {{ largest_group_size }}
+          {% else %}
+            0
+          {% endif %}
+        attributes:
+          largest_group_count: >
+            {% set similarity_threshold = 0.1 %}
+            {% set now_ts = as_timestamp(now()) %}
+            
+            {# Get recent timestamps (last 60 minutes) #}
+            {% set timestamps_str = states('input_text.leaky_toilet_burst_timestamps') %}
+            {% set volumes_str = states('input_text.leaky_toilet_burst_volumes') %}
+            
+            {% if timestamps_str not in [None, '', 'unknown', 'unavailable'] and volumes_str not in [None, '', 'unknown', 'unavailable'] %}
+              {% set timestamps = timestamps_str.split(',') | select('match','^\\d+\\.?\\d*$') | map('float') | list %}
+              {% set volumes = volumes_str.split(',') | select('match','^\\d+\\.?\\d*$') | map('float') | list %}
+              
+              {# Filter to recent bursts (last 60 minutes) #}
+              {% set recent_data = [] %}
+              {% for i in range(timestamps|length) %}
+                {% if i < volumes|length and timestamps[i] > now_ts - 3600 %}
+                  {% set recent_data = recent_data + [{'timestamp': timestamps[i], 'volume': volumes[i]}] %}
+                {% endif %}
+              {% endfor %}
+              
+              {# Group by volume similarity #}
+              {% set groups = [] %}
+              {% for item in recent_data %}
+                {% set found_group = false %}
+                {% for group in groups %}
+                  {% if not found_group %}
+                    {% set avg_volume = (group | map(attribute='volume') | sum) / (group | length) %}
+                    {% if (item.volume - avg_volume) | abs / avg_volume <= similarity_threshold %}
+                      {% set group = group + [item] %}
+                      {% set found_group = true %}
+                    {% endif %}
+                  {% endif %}
+                {% endfor %}
+                {% if not found_group %}
+                  {% set groups = groups + [[item]] %}
+                {% endif %}
+              {% endfor %}
+              
+              {# Find largest group #}
+              {% set largest_group_size = 0 %}
+              {% for group in groups %}
+                {% if group|length > largest_group_size %}
+                  {% set largest_group_size = group|length %}
+                {% endif %}
+              {% endfor %}
+              
+              {{ largest_group_size }}
+            {% else %}
+              0
+            {% endif %}
+          largest_group_volumes: >
+            {% set similarity_threshold = 0.1 %}
+            {% set now_ts = as_timestamp(now()) %}
+            
+            {# Get recent timestamps (last 60 minutes) #}
+            {% set timestamps_str = states('input_text.leaky_toilet_burst_timestamps') %}
+            {% set volumes_str = states('input_text.leaky_toilet_burst_volumes') %}
+            
+            {% if timestamps_str not in [None, '', 'unknown', 'unavailable'] and volumes_str not in [None, '', 'unknown', 'unavailable'] %}
+              {% set timestamps = timestamps_str.split(',') | select('match','^\\d+\\.?\\d*$') | map('float') | list %}
+              {% set volumes = volumes_str.split(',') | select('match','^\\d+\\.?\\d*$') | map('float') | list %}
+              
+              {# Filter to recent bursts (last 60 minutes) #}
+              {% set recent_data = [] %}
+              {% for i in range(timestamps|length) %}
+                {% if i < volumes|length and timestamps[i] > now_ts - 3600 %}
+                  {% set recent_data = recent_data + [{'timestamp': timestamps[i], 'volume': volumes[i]}] %}
+                {% endif %}
+              {% endfor %}
+              
+              {# Group by volume similarity #}
+              {% set groups = [] %}
+              {% for item in recent_data %}
+                {% set found_group = false %}
+                {% for group in groups %}
+                  {% if not found_group %}
+                    {% set avg_volume = (group | map(attribute='volume') | sum) / (group | length) %}
+                    {% if (item.volume - avg_volume) | abs / avg_volume <= similarity_threshold %}
+                      {% set group = group + [item] %}
+                      {% set found_group = true %}
+                    {% endif %}
+                  {% endif %}
+                {% endfor %}
+                {% if not found_group %}
+                  {% set groups = groups + [[item]] %}
+                {% endif %}
+              {% endfor %}
+              
+              {# Find largest group and return its volumes #}
+              {% set largest_group = [] %}
+              {% set largest_group_size = 0 %}
+              {% for group in groups %}
+                {% if group|length > largest_group_size %}
+                  {% set largest_group_size = group|length %}
+                  {% set largest_group = group %}
+                {% endif %}
+              {% endfor %}
+              
+              {{ largest_group | map(attribute='volume') | list }}
+            {% else %}
+              []
+            {% endif %}
+          trigger_threshold: 4
+          will_trigger_alert: >
+            {% set largest_group_count = state_attr('sensor.toilet_burst_session', 'largest_group_count') | int(0) %}
+            {{ largest_group_count >= 4 }}
+          total_recent_bursts: >
+            {% set now_ts = as_timestamp(now()) %}
+            {% set timestamps_str = states('input_text.leaky_toilet_burst_timestamps') %}
+            
+            {% if timestamps_str not in [None, '', 'unknown', 'unavailable'] %}
+              {% set timestamps = timestamps_str.split(',') | select('match','^\\d+\\.?\\d*$') | map('float') | list %}
+              {{ timestamps | select('>', now_ts - 3600) | list | length }}
+            {% else %}
+              0
+            {% endif %}
+          all_recent_volumes: >
+            {% set now_ts = as_timestamp(now()) %}
+            {% set timestamps_str = states('input_text.leaky_toilet_burst_timestamps') %}
+            {% set volumes_str = states('input_text.leaky_toilet_burst_volumes') %}
+            
+            {% if timestamps_str not in [None, '', 'unknown', 'unavailable'] and volumes_str not in [None, '', 'unknown', 'unavailable'] %}
+              {% set timestamps = timestamps_str.split(',') | select('match','^\\d+\\.?\\d*$') | map('float') | list %}
+              {% set volumes = volumes_str.split(',') | select('match','^\\d+\\.?\\d*$') | map('float') | list %}
+              
+              {% set recent_volumes = [] %}
+              {% for i in range(timestamps|length) %}
+                {% if i < volumes|length and timestamps[i] > now_ts - 3600 %}
+                  {% set recent_volumes = recent_volumes + [volumes[i]] %}
+                {% endif %}
+              {% endfor %}
+              
+              {{ recent_volumes }}
+            {% else %}
+              []
+            {% endif %}
+          similarity_threshold: 0.1
+          last_burst_volume: >
+            {% set volumes_str = states('input_text.leaky_toilet_burst_volumes') %}
+            {% if volumes_str not in [None, '', 'unknown', 'unavailable'] and ',' in volumes_str %}
+              {{ volumes_str.split(',') | last | float(0) }}
+            {% elif volumes_str not in [None, '', 'unknown', 'unavailable'] %}
+              {{ volumes_str | float(0) }}
+            {% else %}
+              0
+            {% endif %}
 
 automation:
   - id: water_leak_detect_and_clear
@@ -164,6 +372,7 @@ automation:
     action:
       - variables:
           now_ts: "{{ as_timestamp(now()) }}"
+          current_flow: "{{ states('sensor.droplet_flow_rate')|float(0) }}"
           old_timestamps: >
             {% set val = states('input_text.leaky_toilet_burst_timestamps') %}
             {% if val not in [None, '', 'unknown', 'unavailable'] %}
@@ -171,15 +380,38 @@ automation:
             {% else %}
               []
             {% endif %}
+          old_volumes: >
+            {% set val = states('input_text.leaky_toilet_burst_volumes') %}
+            {% if val not in [None, '', 'unknown', 'unavailable'] %}
+              {{ val.split(',') | select('match','^\\d+\\.?\\d*$') | map('float') | list }}
+            {% else %}
+              []
+            {% endif %}
           recent_timestamps: >
             {{ old_timestamps | select('>', now_ts - 3600) | list }}
+          recent_volumes: >
+            {% set recent_ts = old_timestamps | select('>', now_ts - 3600) | list %}
+            {% set recent_vols = [] %}
+            {% for i in range(old_timestamps|length) %}
+              {% if i < old_volumes|length and old_timestamps[i] in recent_ts %}
+                {% set recent_vols = recent_vols + [old_volumes[i]] %}
+              {% endif %}
+            {% endfor %}
+            {{ recent_vols }}
           new_timestamps: >
             {{ (recent_timestamps + [now_ts]) | join(',') }}
+          new_volumes: >
+            {{ (recent_volumes + [current_flow]) | join(',') }}
       - service: input_text.set_value
         target:
           entity_id: input_text.leaky_toilet_burst_timestamps
         data:
           value: "{{ new_timestamps }}"
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.leaky_toilet_burst_volumes
+        data:
+          value: "{{ new_volumes }}"
       - variables:
           burst_count: >-
             {% set ts = new_timestamps %}
@@ -240,5 +472,10 @@ automation:
       - service: input_text.set_value
         target:
           entity_id: input_text.leaky_toilet_burst_timestamps
+        data:
+          value: ""
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.leaky_toilet_burst_volumes
         data:
           value: ""
