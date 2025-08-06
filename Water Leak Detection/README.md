@@ -1,119 +1,130 @@
-# Water Leak & Leaky Toilet Detection for Home Assistant
+# Leak Detection Package for Home Assistant
 
-This package provides robust automations and helper entities to detect:
-- Slow water leaks after high water use
-- Persistent slow leaks
-- Repeated short moderate bursts typical of leaky toilet valves/flappers
-
-You’ll receive actionable notifications (with acknowledgement buttons) and rolling-window logic to prevent notification spam.
-
----
+This package provides smart water leak detection using flow sensors and burst pattern recognition, including:
+- **Low Flow Leak detection**
+- **Leaky Toilet detection with burst session analysis**
 
 ## Features
 
-- **Leak Detection After High Use:** Notifies if water flow stays low after a period of high use.
-- **Slow Leak Detection:** Notifies if slow, nonzero flow persists.
-- **Leaky Toilet Detection:** Uses a rolling hourly window to detect 4+ short, moderate bursts and notifies you.
-- **Single Notification per Event:** Notifications use a tag to update in place instead of spamming.
-- **Acknowledgement Buttons:** Clear alerts and reset detection with a tap.
+- **Highly robust template sensors** with safe fallback defaults
+- **Runtime adjustable parameters**: Easily tune burst detection settings without editing YAML!
+- **Direct automation triggers**: Clean architecture without unnecessary binary sensor layers
+
+---
+
+## How to Adjust Toilet Burst Detection Parameters
+
+**You can override burst detection parameters directly from Developer Tools or automations, without editing YAML!**
+
+### Parameters
+
+The following attributes can be updated for the `sensor.toilet_burst_session` entity:
+
+- `burst_min_flow` (default: 0.5 GPM)
+- `burst_max_flow` (default: 2.5 GPM)
+- `burst_min_duration` (default: 10 seconds)
+- `burst_max_duration` (default: 60 seconds)
+- `burst_window` (default: 3600 seconds / 1 hour)
+- `burst_min_group` (default: 4 bursts)
+- `burst_group_threshold` (default: 0.3 gallons)
+
+### Understanding burst_group_threshold
+
+The `burst_group_threshold` parameter determines how similar burst volumes must be to group together for leak detection. This is one of the most important tuning parameters.
+
+**Testing insights:**
+- **0.1 gallons**: Too strict - normal toilet variations won't group properly
+- **0.2 gallons**: Better, but may still miss some legitimate leaky toilet patterns
+- **0.3 gallons**: Optimal setting - groups similar bursts while avoiding false positives
+- **0.4+ gallons**: Too loose - may group unrelated bursts and cause false alarms
+
+**Example with 0.3 threshold:**
+Burst volumes: [1.35, 1.85, 1.91, 1.88, 2.12, 1.52, 1.76, 1.07, 1.21, 2.09, 1.14]
+
+Groups found:
+- **Main group**: 1.85, 1.91, 1.88, 2.12, 2.09 (5 bursts) ✅ Triggers alert
+- **Secondary group**: 1.07, 1.21, 1.14 (3 bursts) - Below threshold
+
+**Recommendation**: Start with 0.3 and adjust based on your toilet's behavior patterns.
+
+#### Example: Override Using Developer Tools
+
+1. Go to **Developer Tools → Services** in Home Assistant.
+2. Call service: `homeassistant.update_entity`
+3. Service data:
+   ```yaml
+   entity_id: sensor.toilet_burst_session
+   ```
+4. To override an attribute, use the `developer tools → states` panel:
+    - Find `sensor.toilet_burst_session`
+    - Click on it, and enter new values for any of the above attributes, e.g.:
+      - `burst_min_flow: 0.7`
+      - `burst_max_duration: 45`
+      - `burst_group_threshold: 0.25`
+    - Click "SET STATE" (for temporary override, will persist until next restart or state reset).
+
+> **Tip:** For persistent changes, you can also edit the YAML, but this runtime override is usually sufficient for testing optimal values.
+
+---
+
+## Monitoring and Debugging
+
+### Enhanced State Display
+The `sensor.toilet_burst_session` shows the **count of bursts in the largest similar group**, making monitoring intuitive:
+
+- **State**: Shows count (e.g., "5" means 5 similar bursts found)
+- **Unit**: "count" instead of "gallons"
+
+### Helpful Debug Attributes
+- `largest_group_count`: Number of bursts in the largest similar group
+- `largest_group_volumes`: List of volumes in that group (e.g., [1.85, 1.91, 1.88, 2.12, 2.09])
+- `burst_min_group`: Threshold needed to trigger (default: 4)
+
+### Understanding the Display
+```yaml
+State: 5                          # 5 similar bursts found
+largest_group_count: 5           # Same as state
+largest_group_volumes: [1.85, 1.91, 1.88, 2.12, 2.09]
+burst_min_group: 4              # Threshold for alerts
+```
+
+This means: **"Found 5 similar bursts, alert will trigger!"**
+
+---
+
+## How It Works
+
+### Low Flow Detection
+- Filters water flow to only track rates between 0-1 GPM
+- Uses statistics sensor to find minimum flow over 5 minutes
+- Triggers when minimum stays above 0 (indicating persistent small leak)
+
+### Toilet Leak Detection
+- Monitors burst patterns in the 0.5-2.5 GPM range
+- Groups bursts with similar volumes within configurable threshold
+- Alerts when 4+ similar bursts occur within 1 hour window
+- Indicates toilet valve/flapper issues causing repeated refills
+
+### Architecture
+- **Input helpers**: Track acknowledgment state
+- **Template sensors**: Process burst detection and counting
+- **Statistics sensor**: Analyze low flow patterns
+- **Automations**: Direct triggers on sensor values (no binary sensor middleman)
 
 ---
 
 ## Installation
 
-### 1. **Full Package Method (Recommended)**
-
-1. Place `water_leak_package.yaml` in your Home Assistant `config/packages` directory.
-2. In your `configuration.yaml`, add:
-    ```yaml
-    homeassistant:
-      packages: !include_dir_named packages
-    ```
-3. **Reload the Full YAML.**
-
-- This method includes all sensors, helpers, and automations.  
-
-- In Developer Tools/YAML, click 'All YAML CONFIGURATION'.  Note this can take a few minutes and cause HA to run slowly while all YAML is reloaded.
-
-**No further setup required!**
+1. Copy the sensor package YAML to your Home Assistant configuration
+2. Copy the automations YAML to your automations file
+3. Restart Home Assistant
+4. Configure your `sensor.droplet_flow_rate` and `sensor.droplet_water_volume` sources
+5. Test with Developer Tools to fine-tune parameters
 
 ---
 
-### 2. **Automations Only (For Tracing or Custom Use)**
+## Attribution
 
-1. Copy the `automations.yaml` block into your existing `automations.yaml`.
-2. Reload automations or restart Home Assistant.
-3. **You must manually create the required helpers** (*see entities defined in the package*) or delete the automations from the `water_leak_package.yaml` package before you save it in the packages folder.
-
-**For tracing:**  
-- Open "Settings → Automations & Scenes → Automations".
-- Find the imported automations and click "Trace" on any of them.
+Developed for robust water leak detection with real-world testing and optimization.
 
 ---
-
-## Customization
-
-### Notification Service
-
-By default, notifications are sent to `notify.all_family` (which you must have defined in your HA setup, e.g. as a mobile group or similar).
-
-To use a different notification service, **replace all instances of**:
-```yaml
-service: notify.all_family
-```
-with your desired service, e.g. `notify.mobile_app_your_phone`.
-
-### Notification Channel & Priority
-
-These automations use actionable, high-priority notifications with a custom channel.  
-You can change these values in the `data:` block in each notification:
-
-```yaml
-data:
-  tag: leaky_toilet_alert
-  priority: high
-  channel: alarm
-  actions:
-    - action: "ACKNOWLEDGE_LEAKY_TOILET"
-      title: "Acknowledge"
-```
-
-- **priority:** `high` (can be changed to `default`, `critical`, etc. depending on your mobile app)
-- **channel:** `alarm` (used for Android/iOS notification channel/routing)
-- **tag:** ensures only one notification is shown per event
-
----
-
-## Modifying Leak Detection Sensitivity
-
-- **Leak detection thresholds** (e.g. flow rates, durations) are set in the `binary_sensor:` and `automation:` sections.
-- To adjust how sensitive the detection is, modify values in these templates, e.g. for slow flow, high use, burst detection windows, etc.
-
----
-
-## Entities Created
-
-- **input_booleans:** For detected states and acknowledgements
-- **input_buttons:** For manual acknowledgement (useful for dashboards)
-- **input_text:** For rolling-window burst timestamp storage
-- **template binary_sensors:** For high use, slow flow, zero flow, and suspected toilet bursts
-
----
-
-## Troubleshooting
-
-- If notifications do not appear, verify your notification service is set up and working.
-- If you get YAML errors, check indentation or copy-paste issues.
-- If using automations only, ensure all helpers (inputs, sensors) are created manually.
-
----
-
-## Support & Contributions
-
-Feel free to open issues or pull requests for improvements, new features, or bug fixes!
-
----
-
-## Credits
-
-This package is based on real-world water monitoring and HA best practices, tailored for reliability and minimal notification fatigue.
