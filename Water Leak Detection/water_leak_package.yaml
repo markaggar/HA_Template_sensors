@@ -1,8 +1,10 @@
-# Water Leak Detection Package v5 (Final Corrected - No Binary Sensors)
+# Water Leak Detection Package v5 (Final Complete - No Binary Sensors)
 #
 # - Removed unnecessary binary sensors (logic moved to automations)
 # - Toilet burst sensor state shows count of largest group
 # - Correct low flow sensors with proper filtering and statistics
+# - Last Water Session sensor included
+# - Flow/volume sensors as attributes for maintainability
 # - Enhanced debugging attributes
 # - Fully ready for Home Assistant 2024+
 
@@ -39,6 +41,96 @@ sensor:
       last_update: "{{ now() }}"
   - platform: template
     sensors:
+      last_water_session:
+        friendly_name: "Last Water Session"
+        unit_of_measurement: "gallons"
+        value_template: >
+          {% set flow_sensor = this.attributes.flow_sensor | default('sensor.droplet_flow_rate') %}
+          {% set volume_sensor = this.attributes.volume_sensor | default('sensor.droplet_water_volume') %}
+          {% set flow = states(flow_sensor) | float(0) %}
+          {% set volume = states(volume_sensor) | float(0) %}
+          {% set prev_volume = this.attributes.prev_integration | default(volume) %}
+          {% set session_active = this.attributes.session_active | default(false) %}
+          {% set session_start_vol = this.attributes.session_start_vol | default(volume) %}
+          {% set min_flow = this.attributes.min_flow | default(0.1) %}
+          {% set now_ts = as_timestamp(now()) %}
+          {% set last_session_end = this.attributes.last_session_end | default(now_ts) %}
+          {% set session_timeout = this.attributes.session_timeout | default(300) %}
+          {% set time_since_last = now_ts - last_session_end %}
+          {% if flow >= min_flow %}
+            {{ (volume - session_start_vol) | round(2) }}
+          {% elif session_active and time_since_last < session_timeout %}
+            {{ (prev_volume - session_start_vol) | round(2) }}
+          {% else %}
+            {{ this.attributes.last_session_gallons | default(0) }}
+          {% endif %}
+        attribute_templates:
+          flow_sensor: "{{ this.attributes.flow_sensor | default('sensor.droplet_flow_rate') }}"
+          volume_sensor: "{{ this.attributes.volume_sensor | default('sensor.droplet_water_volume') }}"
+          min_flow: "{{ this.attributes.min_flow | default(0.1) }}"
+          session_timeout: "{{ this.attributes.session_timeout | default(300) }}"
+          session_active: >
+            {% set flow_sensor = this.attributes.flow_sensor | default('sensor.droplet_flow_rate') %}
+            {% set flow = states(flow_sensor) | float(0) %}
+            {% set min_flow = this.attributes.min_flow | default(0.1) %}
+            {{ flow >= min_flow }}
+          session_start_vol: >
+            {% set flow_sensor = this.attributes.flow_sensor | default('sensor.droplet_flow_rate') %}
+            {% set volume_sensor = this.attributes.volume_sensor | default('sensor.droplet_water_volume') %}
+            {% set flow = states(flow_sensor) | float(0) %}
+            {% set volume = states(volume_sensor) | float(0) %}
+            {% set min_flow = this.attributes.min_flow | default(0.1) %}
+            {% set prev_active = this.attributes.session_active | default(false) %}
+            {% set prev_start_vol = this.attributes.session_start_vol | default(volume) %}
+            {% if flow >= min_flow %}
+              {% if prev_active %}
+                {{ prev_start_vol }}
+              {% else %}
+                {{ volume }}
+              {% endif %}
+            {% else %}
+              {{ volume }}
+            {% endif %}
+          prev_integration: >
+            {% set volume_sensor = this.attributes.volume_sensor | default('sensor.droplet_water_volume') %}
+            {{ states(volume_sensor) | float(0) }}
+          last_session_gallons: >
+            {% set flow_sensor = this.attributes.flow_sensor | default('sensor.droplet_flow_rate') %}
+            {% set volume_sensor = this.attributes.volume_sensor | default('sensor.droplet_water_volume') %}
+            {% set flow = states(flow_sensor) | float(0) %}
+            {% set volume = states(volume_sensor) | float(0) %}
+            {% set session_active = this.attributes.session_active | default(false) %}
+            {% set prev_volume = this.attributes.prev_integration | default(volume) %}
+            {% set session_start_vol = this.attributes.session_start_vol | default(volume) %}
+            {% set min_flow = this.attributes.min_flow | default(0.1) %}
+            {% set now_ts = as_timestamp(now()) %}
+            {% set session_timeout = this.attributes.session_timeout | default(300) %}
+            {% set last_session_end = this.attributes.last_session_end | default(now_ts) %}
+            {% if not session_active and (prev_volume - session_start_vol) > 0 %}
+              {{ (prev_volume - session_start_vol) | round(2) }}
+            {% else %}
+              {{ this.attributes.last_session_gallons | default(0) }}
+            {% endif %}
+          last_session_end: >
+            {% set flow_sensor = this.attributes.flow_sensor | default('sensor.droplet_flow_rate') %}
+            {% set flow = states(flow_sensor) | float(0) %}
+            {% set session_active = this.attributes.session_active | default(false) %}
+            {% set min_flow = this.attributes.min_flow | default(0.1) %}
+            {% set now_ts = as_timestamp(now()) %}
+            {% if not session_active and flow < min_flow %}
+              {{ now_ts }}
+            {% else %}
+              {{ this.attributes.last_session_end | default(now_ts) }}
+            {% endif %}
+          last_session_duration: >
+            {% set last_end = this.attributes.last_session_end | default(0) %}
+            {% set session_timeout = this.attributes.session_timeout | default(300) %}
+            {% set now_ts = as_timestamp(now()) %}
+            {% if last_end > 0 and (now_ts - last_end) < session_timeout %}
+              {{ session_timeout | round(0) }}
+            {% else %}
+              {{ this.attributes.last_session_duration | default(0) }}
+            {% endif %}
       toilet_burst_session:
         friendly_name: "Toilet Burst Session"
         unit_of_measurement: "count"
@@ -59,6 +151,8 @@ sensor:
           {% endfor %}
           {{ max_group_size.value }}
         attribute_templates:
+          flow_sensor: "{{ this.attributes.flow_sensor | default('sensor.droplet_flow_rate') }}"
+          volume_sensor: "{{ this.attributes.volume_sensor | default('sensor.droplet_water_volume') }}"
           burst_min_flow: "{{ this.attributes.burst_min_flow | default(0.5) }}"
           burst_max_flow: "{{ this.attributes.burst_max_flow | default(2.5) }}"
           burst_min_duration: "{{ this.attributes.burst_min_duration | default(10) }}"
@@ -99,7 +193,8 @@ sensor:
             {% endfor %}
             {{ max_group.volumes }}
           session_active: >
-            {% set flow = states('sensor.droplet_flow_rate')|float(0) %}
+            {% set flow_sensor = this.attributes.flow_sensor | default('sensor.droplet_flow_rate') %}
+            {% set flow = states(flow_sensor)|float(0) %}
             {% set burst_min_flow = this.attributes.burst_min_flow | default(0) %}
             {% set burst_max_flow = this.attributes.burst_max_flow | default(0) %}
             {% if flow >= burst_min_flow and flow <= burst_max_flow %}
@@ -108,7 +203,8 @@ sensor:
               false
             {% endif %}
           session_start: >
-            {% set flow = states('sensor.droplet_flow_rate')|float(0) %}
+            {% set flow_sensor = this.attributes.flow_sensor | default('sensor.droplet_flow_rate') %}
+            {% set flow = states(flow_sensor)|float(0) %}
             {% set burst_min_flow = this.attributes.burst_min_flow | default(0) %}
             {% set burst_max_flow = this.attributes.burst_max_flow | default(0) %}
             {% set prev_active = this.attributes.session_active | default(false) %}
@@ -123,12 +219,14 @@ sensor:
               {{ as_timestamp(now()) }}
             {% endif %}
           session_volume: >
-            {% set flow = states('sensor.droplet_flow_rate')|float(0) %}
+            {% set flow_sensor = this.attributes.flow_sensor | default('sensor.droplet_flow_rate') %}
+            {% set volume_sensor = this.attributes.volume_sensor | default('sensor.droplet_water_volume') %}
+            {% set flow = states(flow_sensor)|float(0) %}
             {% set burst_min_flow = this.attributes.burst_min_flow | default(0) %}
             {% set burst_max_flow = this.attributes.burst_max_flow | default(0) %}
             {% set prev_active = this.attributes.session_active | default(false) %}
             {% set prev_volume = this.attributes.session_volume | default(0) %}
-            {% set integration = states('sensor.droplet_water_volume')|float(0) %}
+            {% set integration = states(volume_sensor)|float(0) %}
             {% set prev_integration = this.attributes.prev_integration | default(integration) %}
             {% if flow >= burst_min_flow and flow <= burst_max_flow %}
               {% if prev_active %}
@@ -140,11 +238,14 @@ sensor:
               0
             {% endif %}
           prev_flow: >
-            {{ states('sensor.droplet_flow_rate')|float(0) }}
+            {% set flow_sensor = this.attributes.flow_sensor | default('sensor.droplet_flow_rate') %}
+            {{ states(flow_sensor)|float(0) }}
           prev_integration: >
-            {{ states('sensor.droplet_water_volume')|float(0) }}
+            {% set volume_sensor = this.attributes.volume_sensor | default('sensor.droplet_water_volume') %}
+            {{ states(volume_sensor)|float(0) }}
           last_burst_volume: >
-            {% set flow = states('sensor.droplet_flow_rate')|float(0) %}
+            {% set flow_sensor = this.attributes.flow_sensor | default('sensor.droplet_flow_rate') %}
+            {% set flow = states(flow_sensor)|float(0) %}
             {% set session_active = this.attributes.session_active | default(false) %}
             {% set session_start = this.attributes.session_start | default(0) %}
             {% set burst_min_duration = this.attributes.burst_min_duration | default(0) %}
@@ -157,7 +258,8 @@ sensor:
               {{ this.attributes.last_burst_volume | default(0) }}
             {% endif %}
           last_burst_end: >
-            {% set flow = states('sensor.droplet_flow_rate')|float(0) %}
+            {% set flow_sensor = this.attributes.flow_sensor | default('sensor.droplet_flow_rate') %}
+            {% set flow = states(flow_sensor)|float(0) %}
             {% set session_active = this.attributes.session_active | default(false) %}
             {% set session_start = this.attributes.session_start | default(0) %}
             {% set burst_min_duration = this.attributes.burst_min_duration | default(0) %}
