@@ -23,8 +23,8 @@ template:
         seconds: "/15"
       - platform: state
         entity_id:
-          - sensor.droplet_flow_rate # change for your flow sensor name
-          - sensor.droplet_water_volume # change for your volume sensor name (can be integral helper based on your flow sensor.
+          - sensor.droplet_flow_rate # name of your real-time water flow sensor (e.g. something that reports in gpm or lpm)
+          - sensor.droplet_water_volume #  name of your real-time water volume sensor (e.g. something that reports in gallons or liters).  Can be an integral helper using left reimann method based off the flow sensor.
     sensor:
       - name: "Last Water Session"
         unique_id: "last_water_session_triggered"
@@ -37,9 +37,9 @@ template:
         attributes:
           # ---- Input Values  ----
           flow_sensor_value: >
-           {{ states('sensor.droplet_flow_rate')|float(0) }} # name of your real-time water flow sensor (e.g. something that reports in gpm or lpm)
+           {{ states('sensor.droplet_flow_rate')|float(0) }} # name of your real-time water flow sensor 
           volume_sensor_value: >
-           {{ states('sensor.droplet_water_volume')|float(0) }} # name of your real-time water volume sensor (e.g. something that reports in gallons or liters).  Can be an integral helper using left reimann method based off the flow sensor.
+           {{ states('sensor.droplet_water_volume')|float(0) }} # name of your real-time water volume sensor
           min_session_volume: >
            {{ this.attributes.min_session_volume | default(0) }} # increase default to filter out low volume events (whatever unit your volume sensor reports)
           min_session_duration: >
