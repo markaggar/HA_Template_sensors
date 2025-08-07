@@ -50,7 +50,7 @@ template:
            {{ this.attributes.session_continuity_window | default(30) }} # number of seconds between ended sessions where the last session is added to the current session (e.g. cleaning teeth).
 
           # ---- Previous State Tracking ----
-           prev_current_session_active: >
+          prev_current_session_active: >
            {{ this.attributes.current_session_active | default(false) }}
           prev_flow_sensor_value: >
            {{ this.attributes.flow_sensor_value | default(0) }}
