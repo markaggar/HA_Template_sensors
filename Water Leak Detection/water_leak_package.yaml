@@ -20,11 +20,12 @@ input_button:
 template:
   - trigger:
       - platform: time_pattern
-        seconds: "/15"
+        seconds: "/5"
       - platform: state
         entity_id:
           - sensor.droplet_flow_rate # name of your real-time water flow sensor (e.g. something that reports in gpm or lpm)
           - sensor.droplet_water_volume #  name of your real-time water volume sensor (e.g. something that reports in gallons or liters).  Can be an integral helper using left reimann method based off the flow sensor.
+          - binary_sensor.hot_water_running # optional hot water sensor - remove this line if you don't have one
     sensor:
       - name: "Last Water Session"
         unique_id: "last_water_session"
@@ -54,11 +55,23 @@ template:
            
           # number of seconds between flow events (flow drops to zero) that will be reported as a single session (e.g. washing dishes)
           session_gap_tolerance: >
-           {{ this.attributes.session_gap_tolerance | default(15) }}
+           {{ this.attributes.session_gap_tolerance | default(5) }}
            
           # number of seconds between ended sessions where the last session is added to the current session (e.g. cleaning teeth)
           session_continuity_window: >
-           {{ this.attributes.session_continuity_window | default(30) }}
+           {{ this.attributes.session_continuity_window | default(5) }}
+           
+          # Set to "binary_sensor.your_hot_water_sensor" to enable hot water tracking (leave blank to disable)
+          hot_water_entity: >
+           {{ this.attributes.hot_water_entity | default("binary_sensor.hot_water_running") }}
+           
+          hot_water_sensor_value: >
+            {% set entity = this.attributes.hot_water_entity | default("") %}
+            {% if entity != "" and entity != none and entity != "null" and states(entity) not in ['unknown', 'unavailable'] %}
+              {{ is_state(entity, 'on') }}
+            {% else %}
+              {{ false }}
+            {% endif %}
 
           # ---- Previous State Tracking ----
           prev_current_session_active: >
@@ -67,6 +80,8 @@ template:
            {{ this.attributes.flow_sensor_value | default(0) }}
           prev_gap_active: >
            {{ this.attributes.gap_active | default(false) }}
+          prev_hot_water_sensor_value: >
+           {{ this.attributes.hot_water_sensor_value | default(false) }}
            
           # ---- Flow State Tracking ----
           flow_zero_start: >
@@ -201,6 +216,41 @@ template:
               {{ prev_volume }}
             {% endif %}
           
+          current_session_hot_water_duration: >
+            {% set hot_water_entity = this.attributes.hot_water_entity | default("") %}
+            {% if hot_water_entity == "" or hot_water_entity == none or hot_water_entity == "null" %}
+              0
+            {% else %}
+              {% set current_active = this.attributes.current_session_active | default(false) %}
+              {% set prev_active = this.attributes.prev_current_session_active | default(false) %}
+              {% set flow = this.attributes.flow_sensor_value | default(0) %}
+              {% set prev_flow = this.attributes.prev_flow_sensor_value | default(0) %}
+              {% set prev_gap_active = this.attributes.prev_gap_active | default(false) %}
+              {% set hot_water_on = this.attributes.hot_water_sensor_value | default(false) %}
+              {% set prev_duration = this.attributes.current_session_hot_water_duration | default(0) %}
+              {% set continuity_window = this.attributes.session_continuity_window | default(30) %}
+              {% set last_session_end = this.attributes.last_session_end_time | default("") %}
+              {% set now_ts = as_timestamp(now()) %}
+              
+              {% if flow > 0 and prev_flow == 0 and not prev_gap_active %}
+                {% if last_session_end != "" and (now_ts - as_timestamp(last_session_end)) < continuity_window %}
+                  {% if hot_water_on %}{{ prev_duration + 15 }}{% else %}{{ prev_duration }}{% endif %}
+                {% else %}
+                  {% if hot_water_on %}15{% else %}0{% endif %}
+                {% endif %}
+              {% elif current_active and hot_water_on %}
+                {{ prev_duration + 15 }}
+              {% elif current_active %}
+                {{ prev_duration }}
+              {% elif not current_active and prev_active %}
+                {{ prev_duration }}
+              {% elif not current_active %}
+                {{ prev_duration }}
+              {% else %}
+                0
+              {% endif %}
+            {% endif %}
+          
           # ---- INTERMEDIATE SESSION (accumulates when gap starts AND when flow resumes) ----
           intermediate_session_exists: >
             {% set flow = this.attributes.flow_sensor_value | default(0) %}
@@ -256,6 +306,25 @@ template:
               {{ prev_intermediate_volume }}
             {% endif %}
           
+          intermediate_session_hot_water_duration: >
+            {% set hot_water_entity = this.attributes.hot_water_entity | default("") %}
+            {% if hot_water_entity == "" or hot_water_entity == none or hot_water_entity == "null" %}
+              0
+            {% else %}
+              {% set flow = this.attributes.flow_sensor_value | default(0) %}
+              {% set gap_active = this.attributes.gap_active | default(false) %}
+              {% set prev_gap_active = this.attributes.prev_gap_active | default(false) %}
+              {% set current_hot_water_duration = this.attributes.current_session_hot_water_duration | default(0) %}
+              {% set prev_intermediate_duration = this.attributes.intermediate_session_hot_water_duration | default(0) %}
+              {% if flow == 0 and gap_active and not prev_gap_active %}
+                {{ current_hot_water_duration }}
+              {% elif flow > 0 and prev_gap_active %}
+                {{ prev_intermediate_duration }}
+              {% else %}
+                {{ prev_intermediate_duration }}
+              {% endif %}
+            {% endif %}
+          
           intermediate_gapped_sessions: >
             {% set flow = this.attributes.flow_sensor_value | default(0) %}
             {% set prev_flow = this.attributes.prev_flow_sensor_value | default(0) %}
@@ -277,19 +346,31 @@ template:
               {{ prev_count }}
             {% endif %}
           
-          # ---- LAST SESSION (updates when flow == 0 AND gap == false AND session meets criteria) ----
+          # ---- LAST SESSION (FIXED - handles both intermediate and direct transfers) ----
           last_session_start_time: >
             {% set flow = this.attributes.flow_sensor_value | default(0) %}
             {% set gap_active = this.attributes.gap_active | default(false) %}
+            {% set current_active = this.attributes.current_session_active | default(false) %}
+            {% set prev_active = this.attributes.prev_current_session_active | default(false) %}
             {% set intermediate_exists = this.attributes.intermediate_session_exists | default(false) %}
             {% set intermediate_original_start = this.attributes.intermediate_original_start_time | default("") %}
             {% set intermediate_duration = this.attributes.intermediate_session_duration | default(0) %}
             {% set intermediate_volume = this.attributes.intermediate_session_volume | default(0) %}
+            {% set current_duration = this.attributes.current_session_duration | default(0) %}
+            {% set current_volume = this.attributes.current_session_volume | default(0) %}
+            {% set original_start_time = this.attributes.original_session_start_time | default("") %}
             {% set min_volume = this.attributes.min_session_volume | default(0) %}
             {% set min_duration = this.attributes.min_session_duration | default(0) %}
             {% set prev_last_start = this.attributes.last_session_start_time | default("") %}
-            {% if flow == 0 and not gap_active and intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+            
+            {% set just_ended = flow == 0 and not gap_active and prev_active and not current_active %}
+            {% set intermediate_transfer = intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+            {% set direct_transfer = just_ended and current_duration >= min_duration and current_volume >= min_volume %}
+            
+            {% if intermediate_transfer %}
               {{ intermediate_original_start }}
+            {% elif direct_transfer %}
+              {{ original_start_time }}
             {% else %}
               {{ prev_last_start }}
             {% endif %}
@@ -297,13 +378,22 @@ template:
           last_session_end_time: >
             {% set flow = this.attributes.flow_sensor_value | default(0) %}
             {% set gap_active = this.attributes.gap_active | default(false) %}
+            {% set current_active = this.attributes.current_session_active | default(false) %}
+            {% set prev_active = this.attributes.prev_current_session_active | default(false) %}
             {% set intermediate_exists = this.attributes.intermediate_session_exists | default(false) %}
             {% set intermediate_duration = this.attributes.intermediate_session_duration | default(0) %}
             {% set intermediate_volume = this.attributes.intermediate_session_volume | default(0) %}
+            {% set current_duration = this.attributes.current_session_duration | default(0) %}
+            {% set current_volume = this.attributes.current_session_volume | default(0) %}
             {% set min_volume = this.attributes.min_session_volume | default(0) %}
             {% set min_duration = this.attributes.min_session_duration | default(0) %}
             {% set prev_last_end = this.attributes.last_session_end_time | default("") %}
-            {% if flow == 0 and not gap_active and intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+            
+            {% set just_ended = flow == 0 and not gap_active and prev_active and not current_active %}
+            {% set intermediate_transfer = intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+            {% set direct_transfer = just_ended and current_duration >= min_duration and current_volume >= min_volume %}
+            
+            {% if intermediate_transfer or direct_transfer %}
               {{ now().isoformat() }}
             {% else %}
               {{ prev_last_end }}
@@ -312,14 +402,24 @@ template:
           last_session_duration: >
             {% set flow = this.attributes.flow_sensor_value | default(0) %}
             {% set gap_active = this.attributes.gap_active | default(false) %}
+            {% set current_active = this.attributes.current_session_active | default(false) %}
+            {% set prev_active = this.attributes.prev_current_session_active | default(false) %}
             {% set intermediate_exists = this.attributes.intermediate_session_exists | default(false) %}
             {% set intermediate_duration = this.attributes.intermediate_session_duration | default(0) %}
             {% set intermediate_volume = this.attributes.intermediate_session_volume | default(0) %}
             {% set current_duration = this.attributes.current_session_duration | default(0) %}
+            {% set current_volume = this.attributes.current_session_volume | default(0) %}
             {% set min_volume = this.attributes.min_session_volume | default(0) %}
             {% set min_duration = this.attributes.min_session_duration | default(0) %}
             {% set prev_last_duration = this.attributes.last_session_duration | default(0) %}
-            {% if flow == 0 and not gap_active and intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+            
+            {% set just_ended = flow == 0 and not gap_active and prev_active and not current_active %}
+            {% set intermediate_transfer = intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+            {% set direct_transfer = just_ended and current_duration >= min_duration and current_volume >= min_volume %}
+            
+            {% if intermediate_transfer %}
+              {{ intermediate_duration }}
+            {% elif direct_transfer %}
               {{ current_duration }}
             {% else %}
               {{ prev_last_duration }}
@@ -328,32 +428,100 @@ template:
           last_session_volume: >
             {% set flow = this.attributes.flow_sensor_value | default(0) %}
             {% set gap_active = this.attributes.gap_active | default(false) %}
+            {% set current_active = this.attributes.current_session_active | default(false) %}
+            {% set prev_active = this.attributes.prev_current_session_active | default(false) %}
             {% set intermediate_exists = this.attributes.intermediate_session_exists | default(false) %}
             {% set intermediate_duration = this.attributes.intermediate_session_duration | default(0) %}
             {% set intermediate_volume = this.attributes.intermediate_session_volume | default(0) %}
+            {% set current_duration = this.attributes.current_session_duration | default(0) %}
             {% set current_volume = this.attributes.current_session_volume | default(0) %}
             {% set min_volume = this.attributes.min_session_volume | default(0) %}
             {% set min_duration = this.attributes.min_session_duration | default(0) %}
             {% set prev_last_volume = this.attributes.last_session_volume | default(0) %}
-            {% if flow == 0 and not gap_active and intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+            
+            {% set just_ended = flow == 0 and not gap_active and prev_active and not current_active %}
+            {% set intermediate_transfer = intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+            {% set direct_transfer = just_ended and current_duration >= min_duration and current_volume >= min_volume %}
+            
+            {% if intermediate_transfer %}
+              {{ intermediate_volume | round(4) }}
+            {% elif direct_transfer %}
               {{ current_volume | round(4) }}
             {% else %}
               {{ prev_last_volume }}
             {% endif %}
           
+          last_session_hot_water_duration: >
+            {% set hot_water_entity = this.attributes.hot_water_entity | default("") %}
+            {% if hot_water_entity == "" or hot_water_entity == none or hot_water_entity == "null" %}
+              0
+            {% else %}
+              {% set flow = this.attributes.flow_sensor_value | default(0) %}
+              {% set gap_active = this.attributes.gap_active | default(false) %}
+              {% set current_active = this.attributes.current_session_active | default(false) %}
+              {% set prev_active = this.attributes.prev_current_session_active | default(false) %}
+              {% set intermediate_exists = this.attributes.intermediate_session_exists | default(false) %}
+              {% set intermediate_duration = this.attributes.intermediate_session_duration | default(0) %}
+              {% set intermediate_volume = this.attributes.intermediate_session_volume | default(0) %}
+              {% set intermediate_hot_water_duration = this.attributes.intermediate_session_hot_water_duration | default(0) %}
+              {% set current_duration = this.attributes.current_session_duration | default(0) %}
+              {% set current_volume = this.attributes.current_session_volume | default(0) %}
+              {% set current_hot_water_duration = this.attributes.current_session_hot_water_duration | default(0) %}
+              {% set min_volume = this.attributes.min_session_volume | default(0) %}
+              {% set min_duration = this.attributes.min_session_duration | default(0) %}
+              {% set prev_last_duration = this.attributes.last_session_hot_water_duration | default(0) %}
+              
+              {% set just_ended = flow == 0 and not gap_active and prev_active and not current_active %}
+              {% set intermediate_transfer = intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+              {% set direct_transfer = just_ended and current_duration >= min_duration and current_volume >= min_volume %}
+              
+              {% if intermediate_transfer %}
+                {{ intermediate_hot_water_duration }}
+              {% elif direct_transfer %}
+                {{ current_hot_water_duration }}
+              {% else %}
+                {{ prev_last_duration }}
+              {% endif %}
+            {% endif %}
+          
+          last_session_hot_water_percentage: >
+            {% set hot_water_entity = this.attributes.hot_water_entity | default("") %}
+            {% if hot_water_entity == "" or hot_water_entity == none or hot_water_entity == "null" %}
+              0
+            {% else %}
+              {% set total_duration = this.attributes.last_session_duration | default(0) %}
+              {% set hot_water_duration = this.attributes.last_session_hot_water_duration | default(0) %}
+              {% if total_duration == 0 %}
+                0
+              {% else %}
+                {{ (hot_water_duration / total_duration * 100) | round(1) }}
+              {% endif %}
+            {% endif %}
+          
           last_session_gapped_sessions: >
             {% set flow = this.attributes.flow_sensor_value | default(0) %}
             {% set gap_active = this.attributes.gap_active | default(false) %}
+            {% set current_active = this.attributes.current_session_active | default(false) %}
+            {% set prev_active = this.attributes.prev_current_session_active | default(false) %}
             {% set intermediate_exists = this.attributes.intermediate_session_exists | default(false) %}
             {% set intermediate_duration = this.attributes.intermediate_session_duration | default(0) %}
             {% set intermediate_volume = this.attributes.intermediate_session_volume | default(0) %}
             {% set intermediate_count = this.attributes.intermediate_gapped_sessions | default(0) %}
+            {% set current_duration = this.attributes.current_session_duration | default(0) %}
+            {% set current_volume = this.attributes.current_session_volume | default(0) %}
+            {% set current_count = this.attributes.intermediate_gapped_sessions | default(0) %}
             {% set min_volume = this.attributes.min_session_volume | default(0) %}
             {% set min_duration = this.attributes.min_session_duration | default(0) %}
             {% set prev_last_count = this.attributes.last_session_gapped_sessions | default(0) %}
-            {% set current_active = this.attributes.current_session_active | default(false) %}
-            {% if flow == 0 and not gap_active and intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+            
+            {% set just_ended = flow == 0 and not gap_active and prev_active and not current_active %}
+            {% set intermediate_transfer = intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+            {% set direct_transfer = just_ended and current_duration >= min_duration and current_volume >= min_volume %}
+            
+            {% if intermediate_transfer %}
               {{ intermediate_count }}
+            {% elif direct_transfer %}
+              {{ current_count }}
             {% elif current_active or gap_active %}
               {{ prev_last_count }}
             {% else %}
@@ -451,6 +619,52 @@ template:
             {% set session_start_integration = this.attributes.current_session_start_integration | default(0) %}
             {% set current_active = this.attributes.current_session_active | default(false) %}
             integration={{ integration }}, start_integration={{ session_start_integration }}, active={{ current_active }}
+          
+          debug_hot_water_tracking: >
+            {% set hot_water_entity = this.attributes.hot_water_entity | default("") %}
+            {% set hot_water_on = this.attributes.hot_water_sensor_value | default(false) %}
+            {% set current_duration = this.attributes.current_session_hot_water_duration | default(0) %}
+            {% set last_percentage = this.attributes.last_session_hot_water_percentage | default(0) %}
+            {% set flow = this.attributes.flow_sensor_value | default(0) %}
+            {% set prev_flow = this.attributes.prev_flow_sensor_value | default(0) %}
+            {% set prev_gap_active = this.attributes.prev_gap_active | default(false) %}
+            {% set continuity_window = this.attributes.session_continuity_window | default(30) %}
+            {% set last_session_end = this.attributes.last_session_end_time | default("") %}
+            {% set now_ts = as_timestamp(now()) %}
+            {% if hot_water_entity == "" %}
+              NO_HOT_WATER_TRACKING
+            {% else %}
+              {% set is_new_session = flow > 0 and prev_flow == 0 and not prev_gap_active %}
+              {% set is_continuity = last_session_end != "" and (now_ts - as_timestamp(last_session_end)) < continuity_window %}
+              entity={{ hot_water_entity }}, active={{ hot_water_on }}, current_duration={{ current_duration }}s, last_percentage={{ last_percentage }}%, new_session={{ is_new_session }}, continuity={{ is_continuity }}
+            {% endif %}
+          
+          debug_session_transfer: >
+            {% set flow = this.attributes.flow_sensor_value | default(0) %}
+            {% set gap_active = this.attributes.gap_active | default(false) %}
+            {% set current_active = this.attributes.current_session_active | default(false) %}
+            {% set prev_active = this.attributes.prev_current_session_active | default(false) %}
+            {% set intermediate_exists = this.attributes.intermediate_session_exists | default(false) %}
+            {% set intermediate_duration = this.attributes.intermediate_session_duration | default(0) %}
+            {% set intermediate_volume = this.attributes.intermediate_session_volume | default(0) %}
+            {% set current_duration = this.attributes.current_session_duration | default(0) %}
+            {% set current_volume = this.attributes.current_session_volume | default(0) %}
+            {% set min_volume = this.attributes.min_session_volume | default(0) %}
+            {% set min_duration = this.attributes.min_session_duration | default(0) %}
+            
+            {% set just_ended = flow == 0 and not gap_active and prev_active and not current_active %}
+            {% set intermediate_transfer = intermediate_exists and intermediate_duration >= min_duration and intermediate_volume >= min_volume %}
+            {% set direct_transfer = just_ended and current_duration >= min_duration and current_volume >= min_volume %}
+            
+            {% if intermediate_transfer %}
+              INTERMEDIATE_TRANSFER: {{ intermediate_duration }}s/{{ intermediate_volume }}gal
+            {% elif direct_transfer %}
+              DIRECT_TRANSFER: {{ current_duration }}s/{{ current_volume }}gal
+            {% elif just_ended %}
+              BLOCKED: session too small ({{ current_duration }}s/{{ current_volume }}gal, min: {{ min_duration }}s/{{ min_volume }}gal)
+            {% else %}
+              NO_TRANSFER
+            {% endif %}
 
 sensor:
   # Template platform sensors
@@ -487,13 +701,13 @@ sensor:
           burst_min_duration: "{{ this.attributes.burst_min_duration | default(10) }}"
           
           # maximum duration for a flow event
-          burst_max_duration: "{{ this.attributes.burst_max_duration | default(180) }}"
+          burst_max_duration: "{{ this.attributes.burst_max_duration | default(60) }}"
           
           # minimum volume for a flow event
-          burst_min_volume: "{{ this.attributes.burst_min_volume | default(1.2) }}"
+          burst_min_volume: "{{ this.attributes.burst_min_volume | default(1.1) }}"
           
           # maximum volume for a flow event
-          burst_max_volume: "{{ this.attributes.burst_max_volume | default(4.0) }}"
+          burst_max_volume: "{{ this.attributes.burst_max_volume | default(1.9) }}"
           
           # window in seconds to consider all captured flow events (3600 = 1 hour)
           burst_window: "{{ this.attributes.burst_window | default(3600) }}"
