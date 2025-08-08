@@ -38,7 +38,7 @@ template:
           # ---- Input Values  ----
           # name of your real-time water flow sensor
           flow_sensor_value: >
-          {{ states('sensor.droplet_flow_rate')|float(0) }}
+           {{ states('sensor.droplet_flow_rate')|float(0) }}
           
           # name of your real-time water volume sensor
           volume_sensor_value: >
@@ -496,7 +496,7 @@ sensor:
           burst_max_volume: "{{ this.attributes.burst_max_volume | default(4.0) }}"
           
           # window in seconds to consider all captured flow events (3600 = 1 hour)
-           burst_window: "{{ this.attributes.burst_window | default(3600) }}"
+          burst_window: "{{ this.attributes.burst_window | default(3600) }}"
            
           # minimum number of flow events to trigger a leak detection (false to true)
           burst_min_group: "{{ this.attributes.burst_min_group | default(4) }}"
