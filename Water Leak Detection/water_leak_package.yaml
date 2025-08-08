@@ -36,21 +36,26 @@ template:
            {{ last_session_volume }}
         attributes:
           # ---- Input Values  ----
-          flow_sensor_value: >
           # name of your real-time water flow sensor
-           {{ states('sensor.droplet_flow_rate')|float(0) }} 
+          flow_sensor_value: >
+          {{ states('sensor.droplet_flow_rate')|float(0) }}
+          
           # name of your real-time water volume sensor
           volume_sensor_value: >
            {{ states('sensor.droplet_water_volume')|float(0) }}
+           
           # increase default to filter out low volume events (whatever unit your volume sensor reports)
           min_session_volume: >
            {{ this.attributes.min_session_volume | default(0) }}
+           
           # increase default to filter out short duration events (seconds)
           min_session_duration: >
            {{ this.attributes.min_session_duration | default(0) }}
+           
           # number of seconds between flow events (flow drops to zero) that will be reported as a single session (e.g. washing dishes)
           session_gap_tolerance: >
            {{ this.attributes.session_gap_tolerance | default(15) }}
+           
           # number of seconds between ended sessions where the last session is added to the current session (e.g. cleaning teeth)
           session_continuity_window: >
            {{ this.attributes.session_continuity_window | default(30) }}
@@ -473,21 +478,29 @@ sensor:
         attribute_templates:
           # ---- User Config ----
           # minium flow rate to be included for consideration 
-          burst_min_flow: "{{ this.attributes.burst_min_flow | default(0.5) }}" 
+          burst_min_flow: "{{ this.attributes.burst_min_flow | default(0.5) }}"
+          
           # maximum flow rate to be included for consideration
           burst_max_flow: "{{ this.attributes.burst_max_flow | default(2.5) }}"
+          
           # minimum duration for a flow event
-          burst_min_duration: "{{ this.attributes.burst_min_duration | default(10) }}" 
+          burst_min_duration: "{{ this.attributes.burst_min_duration | default(10) }}"
+          
           # maximum duration for a flow event
           burst_max_duration: "{{ this.attributes.burst_max_duration | default(180) }}"
+          
           # minimum volume for a flow event
           burst_min_volume: "{{ this.attributes.burst_min_volume | default(1.2) }}"
+          
           # maximum volume for a flow event
-          burst_max_volume: "{{ this.attributes.burst_max_volume | default(4.0) }}" 
-           # window in seconds to consider all captured flow events (3600 = 1 hour)
-          burst_window: "{{ this.attributes.burst_window | default(3600) }}"
+          burst_max_volume: "{{ this.attributes.burst_max_volume | default(4.0) }}"
+          
+          # window in seconds to consider all captured flow events (3600 = 1 hour)
+           burst_window: "{{ this.attributes.burst_window | default(3600) }}"
+           
           # minimum number of flow events to trigger a leak detection (false to true)
-          burst_min_group: "{{ this.attributes.burst_min_group | default(4) }}" 
+          burst_min_group: "{{ this.attributes.burst_min_group | default(4) }}"
+          
           # threshold for flow events to be considered the same (see documentation)
           burst_group_threshold: "{{ this.attributes.burst_group_threshold | default(0.3) }}"
           
