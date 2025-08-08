@@ -2,260 +2,252 @@
 # Rich notifications with direct sensor triggers (no binary sensor dependency)
 
 - id: low_flow_leak_notify
-  alias: "Low Flow Leak Notification"
+  alias: Low Flow Leak Notification
   trigger:
-    - platform: template
-      value_template: >
-        {% set min_val = state_attr('sensor.low_flow_leak_min_5m', 'min_value') %}
-        {% set buf = state_attr('sensor.low_flow_leak_min_5m', 'buffer_usage_ratio') %}
-        {{ min_val is number and buf is number and buf > 0.99 and min_val > 0 and min_val < 1 }}
-  condition:
-    - condition: state
-      entity_id: input_boolean.low_flow_leak_detected
-      state: "off"  # Don't spam if already acknowledged
-    - condition: numeric_state
-      entity_id: sensor.low_flow_leak_min_5m
-      attribute: age_coverage_ratio
-      above: 0.75
-  action:
-    - service: input_boolean.turn_on
-      entity_id: input_boolean.low_flow_leak_detected
-    - service: notify.all_family
-      data:
-        message: >-
-          Low-flow water detected (staying between 0-1 GPM for 5+ minutes). 
-          Current minimum flow: {{ states('sensor.low_flow_leak_min_5m') | round(3) }} GPM.
-          Buffer usage: {{ state_attr('sensor.low_flow_leak_min_5m', 'buffer_usage_ratio') | round(2) }}
-          Age coverage: {{ state_attr('sensor.low_flow_leak_min_5m', 'age_coverage_ratio') | round(2) }}
-          Please check for small leaks or dripping faucets!
-        title: "Possible Persistent Low-Flow Leak"
-        data:
-          tag: low_flow_leak_alert
-          priority: high
-          channel: alarm
-          actions:
-            - action: "ACKNOWLEDGE_LOW_FLOW_LEAK"
-              title: "Acknowledge"
-  mode: single
+  - platform: template
+    value_template: '{% set min_val = state_attr(''sensor.low_flow_leak_min_5m'',
+      ''min_value'') %} {% set buf = state_attr(''sensor.low_flow_leak_min_5m'', ''buffer_usage_ratio'')
+      %} {{ min_val is number and buf is number and buf > 0.99 and min_val > 0 and
+      min_val < 1 }}
 
+      '
+  condition:
+  - condition: state
+    entity_id: input_boolean.low_flow_leak_detected
+    state: 'off'
+  - condition: numeric_state
+    entity_id: sensor.low_flow_leak_min_5m
+    attribute: age_coverage_ratio
+    above: 0.75
+  action:
+  - service: input_boolean.turn_on
+    entity_id: input_boolean.low_flow_leak_detected
+  - service: notify.all_family
+    data:
+      message: 'Low-flow water detected (staying between 0-1 GPM for 5+ minutes).  Current
+        minimum flow: {{ states(''sensor.low_flow_leak_min_5m'') | round(3) }} GPM.
+        Buffer usage: {{ state_attr(''sensor.low_flow_leak_min_5m'', ''buffer_usage_ratio'')
+        | round(2) }} Age coverage: {{ state_attr(''sensor.low_flow_leak_min_5m'',
+        ''age_coverage_ratio'') | round(2) }} Please check for small leaks or dripping
+        faucets!'
+      title: Possible Persistent Low-Flow Leak
+      data:
+        tag: low_flow_leak_alert
+        priority: high
+        channel: alarm
+        actions:
+        - action: ACKNOWLEDGE_LOW_FLOW_LEAK
+          title: Acknowledge
+  mode: single
 - id: low_flow_leak_acknowledge_alert
-  alias: "Low Flow Leak: Acknowledge Alert"
+  alias: 'Low Flow Leak: Acknowledge Alert'
   trigger:
-    - platform: state
-      entity_id: input_button.acknowledge_low_flow_leak
-    - platform: event
-      event_type: mobile_app_notification_action
-      event_data:
-        action: ACKNOWLEDGE_LOW_FLOW_LEAK
+  - platform: state
+    entity_id: input_button.acknowledge_low_flow_leak
+  - platform: event
+    event_type: mobile_app_notification_action
+    event_data:
+      action: ACKNOWLEDGE_LOW_FLOW_LEAK
   action:
-    - service: input_boolean.turn_off
-      entity_id: input_boolean.low_flow_leak_detected
-
+  - service: input_boolean.turn_off
+    entity_id: input_boolean.low_flow_leak_detected
 - id: low_flow_leak_clear
-  alias: "Low Flow Leak Cleared"
+  alias: Low Flow Leak Cleared
   trigger:
-    - platform: template
-      value_template: >
-        {% set min_val = state_attr('sensor.low_flow_leak_min_5m', 'min_value') %}
-        {% set buf = state_attr('sensor.low_flow_leak_min_5m', 'buffer_usage_ratio') %}
-        {{ not (min_val is number and buf is number and buf > 0.99 and min_val > 0 and min_val < 1) }}
-  condition:
-    - condition: state
-      entity_id: input_boolean.low_flow_leak_detected
-      state: "on"
-  action:
-    - service: input_boolean.turn_off
-      entity_id: input_boolean.low_flow_leak_detected
-    - service: notify.all_family
-      data:
-        message: "Low-flow leak condition cleared. Water flow has returned to normal patterns."
-        title: "Low Flow Leak Cleared"
-        data:
-          tag: low_flow_leak_alert
-          priority: default
-          channel: alarm
-  mode: single
+  - platform: template
+    value_template: '{% set min_val = state_attr(''sensor.low_flow_leak_min_5m'',
+      ''min_value'') %} {% set buf = state_attr(''sensor.low_flow_leak_min_5m'', ''buffer_usage_ratio'')
+      %} {{ not (min_val is number and buf is number and buf > 0.99 and min_val >
+      0 and min_val < 1) }}
 
+      '
+  condition:
+  - condition: state
+    entity_id: input_boolean.low_flow_leak_detected
+    state: 'on'
+  action:
+  - service: input_boolean.turn_off
+    entity_id: input_boolean.low_flow_leak_detected
+  - service: notify.all_family
+    data:
+      message: Low-flow leak condition cleared. Water flow has returned to normal
+        patterns.
+      title: Low Flow Leak Cleared
+      data:
+        tag: low_flow_leak_alert
+        priority: default
+        channel: alarm
+  mode: single
 - id: leaky_toilet_smart_notify
-  alias: "Leaky Toilet Smart Notification"
-  trigger:
-    - platform: state
-      entity_id: sensor.toilet_water_leak_detected
-      to: "true"
-  condition:
-    - condition: state
-      entity_id: input_boolean.leaky_toilet_smart_detected
-      state: "off"  # Don't spam if already acknowledged
-  action:
-    - service: input_boolean.turn_on
-      entity_id: input_boolean.leaky_toilet_smart_detected
-    - service: notify.all_family
+  alias: Leaky Toilet Smart Notification
+  triggers:
+  - entity_id:
+    - sensor.toilet_water_leak_detected
+    to: 'True'
+    trigger: state
+    from: 'False'
+  conditions:
+  - condition: state
+    entity_id: input_boolean.leaky_toilet_smart_detected
+    state: 'off'
+    enabled: false
+  actions:
+  - entity_id: input_boolean.leaky_toilet_smart_detected
+    action: input_boolean.turn_on
+  - data:
+      message: "\U0001F6BD Detected {{ state_attr('sensor.toilet_water_leak_detected',
+        'largest_group_count') }} repeating toilet fill patterns suggesting a leak!\n\U0001F4CA
+        **Burst Analysis:** • Similar burst count: {{ state_attr('sensor.toilet_water_leak_detected',
+        'largest_group_count') }} • Pattern window: {{ (state_attr('sensor.toilet_water_leak_detected',
+        'burst_window') | int / 60) | round(0) }} minutes • Group threshold: {{ state_attr('sensor.toilet_water_leak_detected',
+        'burst_group_threshold') }} gallons • Similar burst volumes: {{ state_attr('sensor.toilet_water_leak_detected',
+        'largest_group_volumes') | join(', ') }} gallons\n\U0001F4C8 **Detection Parameters:**
+        • Min group size: {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_group')
+        }} • Flow range: {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_flow')
+        }}-{{ state_attr('sensor.toilet_water_leak_detected', 'burst_max_flow') }}
+        GPM • Duration range: {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_duration')
+        }}-{{ state_attr('sensor.toilet_water_leak_detected', 'burst_max_duration')
+        }} seconds\n\U0001F4A1 This may indicate a leaky toilet valve, flapper, or
+        fill mechanism."
+      title: Leaky Toilet Detected ({{ state_attr('sensor.toilet_water_leak_detected',
+        'largest_group_count') }} Similar Bursts)
       data:
-        message: >-
-          🚽 Detected {{ state_attr('sensor.toilet_water_leak_detected', 'largest_group_count') }} repeating toilet fill patterns suggesting a leak!
-          
-          📊 **Burst Analysis:**
-          • Similar burst count: {{ state_attr('sensor.toilet_water_leak_detected', 'largest_group_count') }}
-          • Pattern window: {{ (state_attr('sensor.toilet_water_leak_detected', 'burst_window') | int / 60) | round(0) }} minutes
-          • Group threshold: {{ state_attr('sensor.toilet_water_leak_detected', 'burst_group_threshold') }} gallons
-          • Similar burst volumes: {{ state_attr('sensor.toilet_water_leak_detected', 'largest_group_volumes') | join(', ') }} gallons
-          
-          📈 **Detection Parameters:**
-          • Min group size: {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_group') }}
-          • Flow range: {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_flow') }}-{{ state_attr('sensor.toilet_water_leak_detected', 'burst_max_flow') }} GPM
-          • Duration range: {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_duration') }}-{{ state_attr('sensor.toilet_water_leak_detected', 'burst_max_duration') }} seconds
-          
-          💡 This may indicate a leaky toilet valve, flapper, or fill mechanism.
-        title: "Leaky Toilet Detected ({{ state_attr('sensor.toilet_water_leak_detected', 'largest_group_count') }} Similar Bursts)"
-        data:
-          tag: leaky_toilet_smart_alert
-          priority: high
-          channel: alarm
-          actions:
-            - action: "ACKNOWLEDGE_LEAKY_TOILET_SMART"
-              title: "Acknowledge"
+        tag: leaky_toilet_smart_alert
+        priority: high
+        channel: Urgent
+        actions:
+        - action: ACKNOWLEDGE_LEAKY_TOILET_SMART
+          title: Acknowledge
+    action: notify.all_family
   mode: single
-
 - id: leaky_toilet_smart_acknowledge_alert
-  alias: "Leaky Toilet Smart: Acknowledge Alert"
+  alias: 'Leaky Toilet Smart: Acknowledge Alert'
   trigger:
-    - platform: state
-      entity_id: input_button.acknowledge_leaky_toilet_smart
-    - platform: event
-      event_type: mobile_app_notification_action
-      event_data:
-        action: ACKNOWLEDGE_LEAKY_TOILET_SMART
+  - platform: state
+    entity_id: input_button.acknowledge_leaky_toilet_smart
+  - platform: event
+    event_type: mobile_app_notification_action
+    event_data:
+      action: ACKNOWLEDGE_LEAKY_TOILET_SMART
   action:
-    - service: input_boolean.turn_off
-      entity_id: input_boolean.leaky_toilet_smart_detected
-
+  - service: input_boolean.turn_off
+    entity_id: input_boolean.leaky_toilet_smart_detected
 - id: leaky_toilet_smart_clear
-  alias: "Leaky Toilet Smart Cleared"
-  trigger:
-    - platform: state
-      entity_id: sensor.toilet_water_leak_detected
-      to: "false"
-  condition:
-    - condition: state
-      entity_id: input_boolean.leaky_toilet_smart_detected
-      state: "on"
-  action:
-    - service: input_boolean.turn_off
-      entity_id: input_boolean.leaky_toilet_smart_detected
-    - service: notify.all_family
+  alias: Leaky Toilet Smart Cleared
+  triggers:
+  - entity_id:
+    - sensor.toilet_water_leak_detected
+    to: 'False'
+    trigger: state
+    from: 'True'
+  conditions:
+  - condition: state
+    entity_id: input_boolean.leaky_toilet_smart_detected
+    state: 'on'
+  actions:
+  - entity_id: input_boolean.leaky_toilet_smart_detected
+    action: input_boolean.turn_off
+  - data:
+      message: "✅ Leaky toilet condition cleared. No more repeated toilet fill patterns
+        detected.\n\U0001F4CA **Current Status:** • Similar burst count: {{ state_attr('sensor.toilet_water_leak_detected',
+        'largest_group_count') }} • Burst detection: {{ 'Active' if state_attr('sensor.toilet_water_leak_detected',
+        'session_active') else 'Inactive' }} • Last burst volume: {{ state_attr('sensor.toilet_water_leak_detected',
+        'last_burst_volume') }} gallons"
+      title: Leaky Toilet Cleared (Smart)
       data:
-        message: >-
-          ✅ Leaky toilet condition cleared. No more repeated toilet fill patterns detected.
-          
-          📊 **Current Status:**
-          • Similar burst count: {{ state_attr('sensor.toilet_water_leak_detected', 'largest_group_count') }}
-          • Burst detection: {{ 'Active' if state_attr('sensor.toilet_water_leak_detected', 'session_active') else 'Inactive' }}
-          • Last burst volume: {{ state_attr('sensor.toilet_water_leak_detected', 'last_burst_volume') }} gallons
-        title: "Leaky Toilet Cleared (Smart)"
-        data:
-          tag: leaky_toilet_smart_alert
-          priority: default
-          channel: alarm
+        tag: leaky_toilet_smart_alert
+        priority: default
+        channel: alarm
+    action: notify.all_family
   mode: single
-
-# Optional: Automation to log significant water sessions for analysis
 - id: log_significant_water_sessions
-  alias: "Log Significant Water Sessions"
+  alias: Log Significant Water Sessions
   trigger:
-    - platform: state
-      entity_id: sensor.toilet_water_leak_detected
-      attribute: last_burst_volume
+  - platform: state
+    entity_id: sensor.toilet_water_leak_detected
+    attribute: last_burst_volume
   condition:
-    - condition: template
-      value_template: >
-        {{ 
-          trigger.to_state.attributes.last_burst_volume | float(0) > 
-          trigger.from_state.attributes.last_burst_volume | float(0)
-        }}
-    - condition: numeric_state
-      entity_id: sensor.toilet_water_leak_detected
-      attribute: last_burst_volume
-      above: 1  # Log sessions over 1 gallon
+  - condition: template
+    value_template: "{{ \n  trigger.to_state.attributes.last_burst_volume | float(0)
+      > \n  trigger.from_state.attributes.last_burst_volume | float(0)\n}}\n"
+  - condition: numeric_state
+    entity_id: sensor.toilet_water_leak_detected
+    attribute: last_burst_volume
+    above: 1
   action:
-    - service: logbook.log
-      data:
-        name: "Toilet Burst Completed"
-        message: >-
-          💧 Toilet burst: {{ state_attr('sensor.toilet_water_leak_detected', 'last_burst_volume') }} gallons
-          
-          📊 Similar bursts: {{ state_attr('sensor.toilet_water_leak_detected', 'largest_group_count') }}/{{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_group') }}
-          🚽 Session status: {{ 'Active' if state_attr('sensor.toilet_water_leak_detected', 'session_active') else 'Complete' }}
-        entity_id: sensor.toilet_water_leak_detected
+  - service: logbook.log
+    data:
+      name: Toilet Burst Completed
+      message: "\U0001F4A7 Toilet burst: {{ state_attr('sensor.toilet_water_leak_detected',
+        'last_burst_volume') }} gallons\n\U0001F4CA Similar bursts: {{ state_attr('sensor.toilet_water_leak_detected',
+        'largest_group_count') }}/{{ state_attr('sensor.toilet_water_leak_detected',
+        'burst_min_group') }} \U0001F6BD Session status: {{ 'Active' if state_attr('sensor.toilet_water_leak_detected',
+        'session_active') else 'Complete' }}"
+      entity_id: sensor.toilet_water_leak_detected
   mode: single
-
-# Optional: Automation to alert on unusually large toilet sessions
 - id: large_toilet_session_alert
-  alias: "Large Toilet Session Alert"
+  alias: Large Toilet Session Alert
   trigger:
-    - platform: state
-      entity_id: sensor.toilet_water_leak_detected
-      attribute: last_burst_volume
+  - platform: state
+    entity_id: sensor.toilet_water_leak_detected
+    attribute: last_burst_volume
   condition:
-    - condition: template
-      value_template: >
-        {{ 
-          trigger.to_state.attributes.last_burst_volume | float(0) > 
-          trigger.from_state.attributes.last_burst_volume | float(0)
-        }}
-    - condition: numeric_state
-      entity_id: sensor.toilet_water_leak_detected
-      attribute: last_burst_volume
-      above: 5  # Alert on toilet sessions over 5 gallons
+  - condition: template
+    value_template: "{{ \n  trigger.to_state.attributes.last_burst_volume | float(0)
+      > \n  trigger.from_state.attributes.last_burst_volume | float(0)\n}}\n"
+  - condition: numeric_state
+    entity_id: sensor.toilet_water_leak_detected
+    attribute: last_burst_volume
+    above: 5
   action:
-    - service: notify.all_family
+  - service: notify.all_family
+    data:
+      message: "⚠️ Unusually large toilet session detected: {{ state_attr('sensor.toilet_water_leak_detected',
+        'last_burst_volume') }} gallons.\n\U0001F4CA **Session Details:** • Flow range:
+        {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_flow') }}-{{
+        state_attr('sensor.toilet_water_leak_detected', 'burst_max_flow') }} GPM •
+        Duration: Within {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_duration')
+        }}-{{ state_attr('sensor.toilet_water_leak_detected', 'burst_max_duration')
+        }} seconds • Similar bursts: {{ state_attr('sensor.toilet_water_leak_detected',
+        'largest_group_count') }}\nThis may indicate a toilet malfunction or stuck
+        fill valve."
+      title: Large Toilet Session Detected
       data:
-        message: >-
-          ⚠️ Unusually large toilet session detected: {{ state_attr('sensor.toilet_water_leak_detected', 'last_burst_volume') }} gallons.
-          
-          📊 **Session Details:**
-          • Flow range: {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_flow') }}-{{ state_attr('sensor.toilet_water_leak_detected', 'burst_max_flow') }} GPM
-          • Duration: Within {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_duration') }}-{{ state_attr('sensor.toilet_water_leak_detected', 'burst_max_duration') }} seconds
-          • Similar bursts: {{ state_attr('sensor.toilet_water_leak_detected', 'largest_group_count') }}
-          
-          This may indicate a toilet malfunction or stuck fill valve.
-        title: "Large Toilet Session Detected"
-        data:
-          tag: large_toilet_session
-          priority: normal
-          channel: alarm
+        tag: large_toilet_session
+        priority: normal
+        channel: alarm
   mode: single
-
-# Optional: Alert when toilet burst parameters are modified
 - id: toilet_parameters_changed
-  alias: "Toilet Detection Parameters Changed"
+  alias: Toilet Detection Parameters Changed
   trigger:
-    - platform: state
-      entity_id: sensor.toilet_water_leak_detected
-      attribute: burst_min_flow
-    - platform: state
-      entity_id: sensor.toilet_water_leak_detected
-      attribute: burst_max_flow
-    - platform: state
-      entity_id: sensor.toilet_water_leak_detected
-      attribute: burst_group_threshold
-    - platform: state
-      entity_id: sensor.toilet_water_leak_detected
-      attribute: burst_min_group
+  - platform: state
+    entity_id: sensor.toilet_water_leak_detected
+    attribute: burst_min_flow
+  - platform: state
+    entity_id: sensor.toilet_water_leak_detected
+    attribute: burst_max_flow
+  - platform: state
+    entity_id: sensor.toilet_water_leak_detected
+    attribute: burst_group_threshold
+  - platform: state
+    entity_id: sensor.toilet_water_leak_detected
+    attribute: burst_min_group
   condition:
-    - condition: template
-      value_template: >
-        {{ trigger.from_state.attributes[trigger.attribute] != trigger.to_state.attributes[trigger.attribute] }}
+  - condition: template
+    value_template: '{{ trigger.from_state.attributes[trigger.attribute] != trigger.to_state.attributes[trigger.attribute]
+      }}
+
+      '
   action:
-    - service: logbook.log
-      data:
-        name: "Toilet Detection Parameter Updated"
-        message: >-
-          🔧 Parameter {{ trigger.attribute }} changed from {{ trigger.from_state.attributes[trigger.attribute] }} 
-          to {{ trigger.to_state.attributes[trigger.attribute] }}
-          
-          📊 **Current Settings:**
-          • Flow range: {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_flow') }}-{{ state_attr('sensor.toilet_water_leak_detected', 'burst_max_flow') }} GPM
-          • Group threshold: {{ state_attr('sensor.toilet_water_leak_detected', 'burst_group_threshold') }} gallons
-          • Min group size: {{ state_attr('sensor.toilet_water_leak_detected', 'burst_min_group') }}
-        entity_id: sensor.toilet_water_leak_detected
+  - service: logbook.log
+    data:
+      name: Toilet Detection Parameter Updated
+      message: "\U0001F527 Parameter {{ trigger.attribute }} changed from {{ trigger.from_state.attributes[trigger.attribute]
+        }}  to {{ trigger.to_state.attributes[trigger.attribute] }}\n\U0001F4CA **Current
+        Settings:** • Flow range: {{ state_attr('sensor.toilet_water_leak_detected',
+        'burst_min_flow') }}-{{ state_attr('sensor.toilet_water_leak_detected', 'burst_max_flow')
+        }} GPM • Group threshold: {{ state_attr('sensor.toilet_water_leak_detected',
+        'burst_group_threshold') }} gallons • Min group size: {{ state_attr('sensor.toilet_water_leak_detected',
+        'burst_min_group') }}"
+      entity_id: sensor.toilet_water_leak_detected
   mode: single
