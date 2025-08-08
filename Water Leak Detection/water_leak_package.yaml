@@ -27,7 +27,7 @@ template:
           - sensor.droplet_water_volume #  name of your real-time water volume sensor (e.g. something that reports in gallons or liters).  Can be an integral helper using left reimann method based off the flow sensor.
     sensor:
       - name: "Last Water Session"
-        unique_id: "last_water_session_triggered"
+        unique_id: "last_water_session"
         unit_of_measurement: "gal"
         state_class: measurement
         device_class: water
