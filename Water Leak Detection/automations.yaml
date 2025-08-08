@@ -3,41 +3,33 @@
 
 - id: low_flow_leak_notify
   alias: Low Flow Leak Notification
-  trigger:
-  - platform: template
-    value_template: '{% set min_val = state_attr(''sensor.low_flow_leak_min_5m'',
-      ''min_value'') %} {% set buf = state_attr(''sensor.low_flow_leak_min_5m'', ''buffer_usage_ratio'')
-      %} {{ min_val is number and buf is number and buf > 0.99 and min_val > 0 and
-      min_val < 1 }}
-
-      '
-  condition:
+  triggers:
+  - value_template: "{% set min_val = states('sensor.low_flow_leak_min_5m') | float(0)
+      %} \n{% set buf = state_attr('sensor.low_flow_leak_min_5m', 'age_coverage_ratio')
+      | float(0) %} \n{{ min_val is number and buf is number and buf > 0.75 and min_val
+      > 0 }}"
+    trigger: template
+  conditions:
   - condition: state
     entity_id: input_boolean.low_flow_leak_detected
     state: 'off'
-  - condition: numeric_state
-    entity_id: sensor.low_flow_leak_min_5m
-    attribute: age_coverage_ratio
-    above: 0.75
-  action:
-  - service: input_boolean.turn_on
-    entity_id: input_boolean.low_flow_leak_detected
-  - service: notify.all_family
-    data:
-      message: 'Low-flow water detected (staying between 0-1 GPM for 5+ minutes).  Current
-        minimum flow: {{ states(''sensor.low_flow_leak_min_5m'') | round(3) }} GPM.
-        Buffer usage: {{ state_attr(''sensor.low_flow_leak_min_5m'', ''buffer_usage_ratio'')
-        | round(2) }} Age coverage: {{ state_attr(''sensor.low_flow_leak_min_5m'',
-        ''age_coverage_ratio'') | round(2) }} Please check for small leaks or dripping
-        faucets!'
+    enabled: false
+  actions:
+  - entity_id: input_boolean.low_flow_leak_detected
+    action: input_boolean.turn_on
+  - data:
+      message: 'Please check for small leaks or dripping faucets! Minimum low-flow
+        water detected in last 5 mins has been  {{ states(''sensor.low_flow_leak_min_5m'')
+        | round(3) }} GPM.  '
       title: Possible Persistent Low-Flow Leak
       data:
         tag: low_flow_leak_alert
         priority: high
-        channel: alarm
+        channel: Urgent
         actions:
         - action: ACKNOWLEDGE_LOW_FLOW_LEAK
           title: Acknowledge
+    action: notify.all_family
   mode: single
 - id: low_flow_leak_acknowledge_alert
   alias: 'Low Flow Leak: Acknowledge Alert'
@@ -53,23 +45,21 @@
     entity_id: input_boolean.low_flow_leak_detected
 - id: low_flow_leak_clear
   alias: Low Flow Leak Cleared
-  trigger:
-  - platform: template
-    value_template: '{% set min_val = state_attr(''sensor.low_flow_leak_min_5m'',
-      ''min_value'') %} {% set buf = state_attr(''sensor.low_flow_leak_min_5m'', ''buffer_usage_ratio'')
-      %} {{ not (min_val is number and buf is number and buf > 0.99 and min_val >
-      0 and min_val < 1) }}
-
-      '
-  condition:
+  triggers:
+  - value_template: "{% set min_val = states('sensor.low_flow_leak_min_5m') | float(0)
+      %} \n{% set buf = state_attr('sensor.low_flow_leak_min_5m', 'age_coverage_ratio')
+      | float(0) %} \n{{ min_val is number and buf is number and buf > 0 and min_val
+      == 0 }}\n\n"
+    trigger: template
+  conditions:
   - condition: state
     entity_id: input_boolean.low_flow_leak_detected
     state: 'on'
-  action:
-  - service: input_boolean.turn_off
-    entity_id: input_boolean.low_flow_leak_detected
-  - service: notify.all_family
-    data:
+    enabled: false
+  actions:
+  - entity_id: input_boolean.low_flow_leak_detected
+    action: input_boolean.turn_off
+  - data:
       message: Low-flow leak condition cleared. Water flow has returned to normal
         patterns.
       title: Low Flow Leak Cleared
@@ -77,6 +67,7 @@
         tag: low_flow_leak_alert
         priority: default
         channel: alarm
+    action: notify.all_family
   mode: single
 - id: leaky_toilet_smart_notify
   alias: Leaky Toilet Smart Notification
