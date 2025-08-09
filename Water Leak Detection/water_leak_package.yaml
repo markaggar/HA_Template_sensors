@@ -216,6 +216,51 @@ template:
               {{ prev_volume }}
             {% endif %}
           
+          # ---- HOT WATER START TIME TRACKING ----
+          hot_water_session_start: >
+            {% set hot_water_entity = this.attributes.hot_water_entity | default("") %}
+            {% if hot_water_entity == "" or hot_water_entity == none or hot_water_entity == "null" %}
+              ""
+            {% else %}
+              {% set flow = this.attributes.flow_sensor_value | default(0) %}
+              {% set prev_flow = this.attributes.prev_flow_sensor_value | default(0) %}
+              {% set prev_gap_active = this.attributes.prev_gap_active | default(false) %}
+              {% set hot_water_on = this.attributes.hot_water_sensor_value | default(false) %}
+              {% set prev_hot_water_on = this.attributes.prev_hot_water_sensor_value | default(false) %}
+              {% set prev_hot_water_start = this.attributes.hot_water_session_start | default("") %}
+              {% set continuity_window = this.attributes.session_continuity_window | default(30) %}
+              {% set last_session_end = this.attributes.last_session_end_time | default("") %}
+              {% set now_ts = as_timestamp(now()) %}
+              
+              {% if flow > 0 and prev_flow == 0 and not prev_gap_active %}
+                {# New session starting #}
+                {% if last_session_end != "" and (now_ts - as_timestamp(last_session_end)) < continuity_window %}
+                  {# Continuing previous session #}
+                  {% if hot_water_on %}
+                    {{ prev_hot_water_start if prev_hot_water_start != "" else now().isoformat() }}
+                  {% else %}
+                    ""
+                  {% endif %}
+                {% else %}
+                  {# Brand new session #}
+                  {% if hot_water_on %}
+                    {{ now().isoformat() }}
+                  {% else %}
+                    ""
+                  {% endif %}
+                {% endif %}
+              {% elif hot_water_on and not prev_hot_water_on and (flow > 0 or this.attributes.gap_active | default(false)) %}
+                {# Hot water turned on during session #}
+                {{ now().isoformat() }}
+              {% elif not hot_water_on %}
+                {# Hot water turned off #}
+                ""
+              {% else %}
+                {# Maintain previous state #}
+                {{ prev_hot_water_start }}
+              {% endif %}
+            {% endif %}
+          
           current_session_hot_water_duration: >
             {% set hot_water_entity = this.attributes.hot_water_entity | default("") %}
             {% if hot_water_entity == "" or hot_water_entity == none or hot_water_entity == "null" %}
@@ -223,28 +268,22 @@ template:
             {% else %}
               {% set current_active = this.attributes.current_session_active | default(false) %}
               {% set prev_active = this.attributes.prev_current_session_active | default(false) %}
-              {% set flow = this.attributes.flow_sensor_value | default(0) %}
-              {% set prev_flow = this.attributes.prev_flow_sensor_value | default(0) %}
-              {% set prev_gap_active = this.attributes.prev_gap_active | default(false) %}
               {% set hot_water_on = this.attributes.hot_water_sensor_value | default(false) %}
+              {% set hot_water_start = this.attributes.hot_water_session_start | default("") %}
               {% set prev_duration = this.attributes.current_session_hot_water_duration | default(0) %}
-              {% set continuity_window = this.attributes.session_continuity_window | default(30) %}
-              {% set last_session_end = this.attributes.last_session_end_time | default("") %}
               {% set now_ts = as_timestamp(now()) %}
               
-              {% if flow > 0 and prev_flow == 0 and not prev_gap_active %}
-                {% if last_session_end != "" and (now_ts - as_timestamp(last_session_end)) < continuity_window %}
-                  {% if hot_water_on %}{{ prev_duration + 15 }}{% else %}{{ prev_duration }}{% endif %}
-                {% else %}
-                  {% if hot_water_on %}15{% else %}0{% endif %}
-                {% endif %}
-              {% elif current_active and hot_water_on %}
-                {{ prev_duration + 15 }}
-              {% elif current_active %}
+              {% if current_active and hot_water_on and hot_water_start != "" %}
+                {# Calculate duration from hot water start time #}
+                {{ (now_ts - as_timestamp(hot_water_start)) | int }}
+              {% elif current_active and not hot_water_on %}
+                {# Hot water is off, maintain previous duration #}
                 {{ prev_duration }}
               {% elif not current_active and prev_active %}
+                {# Session just ended, freeze the duration #}
                 {{ prev_duration }}
               {% elif not current_active %}
+                {# Session is not active, maintain frozen value #}
                 {{ prev_duration }}
               {% else %}
                 0
@@ -630,13 +669,14 @@ template:
             {% set prev_gap_active = this.attributes.prev_gap_active | default(false) %}
             {% set continuity_window = this.attributes.session_continuity_window | default(30) %}
             {% set last_session_end = this.attributes.last_session_end_time | default("") %}
+            {% set hot_water_start = this.attributes.hot_water_session_start | default("") %}
             {% set now_ts = as_timestamp(now()) %}
             {% if hot_water_entity == "" %}
               NO_HOT_WATER_TRACKING
             {% else %}
               {% set is_new_session = flow > 0 and prev_flow == 0 and not prev_gap_active %}
               {% set is_continuity = last_session_end != "" and (now_ts - as_timestamp(last_session_end)) < continuity_window %}
-              entity={{ hot_water_entity }}, active={{ hot_water_on }}, current_duration={{ current_duration }}s, last_percentage={{ last_percentage }}%, new_session={{ is_new_session }}, continuity={{ is_continuity }}
+              entity={{ hot_water_entity }}, active={{ hot_water_on }}, current_duration={{ current_duration }}s, last_percentage={{ last_percentage }}%, new_session={{ is_new_session }}, continuity={{ is_continuity }}, hw_start={{ hot_water_start }}
             {% endif %}
           
           debug_session_transfer: >
@@ -665,7 +705,6 @@ template:
             {% else %}
               NO_TRANSFER
             {% endif %}
-
 sensor:
   # Template platform sensors
   - platform: template
