@@ -61,9 +61,9 @@ Given Home Assistant's propensity to complain about template loops, the sensor i
               - media_player.tv_family_room
 
 ## Install
-1. **Download the package file**: Download `simple_lock_manager_package.yaml` from this repository
+1. **Download the package file**: Download `AI_Motion.yaml` from this repository
 2. **Create packages directory**: If you don't already have one, create a `packages` directory in your Home Assistant configuration directory
-3. **Copy the package**: Place `Simple_Lock_Manager_Package.yaml` in your `packages` directory
+3. **Copy the package**: Place `AI_Motion.yaml` in your `packages` directory
 4. **Enable packages in configuration.yaml**: Add the following to your `configuration.yaml` if not already present:
    ```yaml
    homeassistant:
