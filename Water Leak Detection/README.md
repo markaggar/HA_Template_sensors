@@ -1,6 +1,6 @@
 # Leak Detection for Home Assistant
 
-**THIS PACKAGE IS SUPERCEDED BY WATER MONITOR integration.  Navigate up and few clicks and you'll find it in my repos**
+**THIS PACKAGE IS SUPERSEDED BY WATER MONITOR integration.  Navigate up and few clicks and you'll find it in my repos**
 
 This sensor package + automations provides smart water leak detection using flow sensors and burst pattern recognition, including:
 - **Low Flow Leak detection**
