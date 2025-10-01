@@ -12,14 +12,14 @@ Also, I wanted a way for my indoor cameras to be used as motion sensors for ligh
 
 As such I built this template sensor which is easy to adjust for your specific AI and motion sensors.
 
-![image](https://github.com/user-attachments/assets/91a1077c-ab88-4807-8fe3-20a53df3bee0)
+<img width="508" height="689" alt="image" src="https://github.com/user-attachments/assets/9f469a42-2cc0-49dd-9227-888992b9fd02" />
 
-As you can see there are a few sensor attributes which power the sensor.  In particular, I developed a technique to store the previous time the motion sensor was on such that I can calculate the time delta between 'motion on' events to determine whether the sensor should stay on if there are a succession of motion events after the AI person event is triggered.  If there is a motion event within the delta time, the AI motion sensor will stay on even if there hasn't been another person event in hours.  Obviously if your motion sensor is set to highly sensitive and there is a wind storm or something that causes a lot of motion to be detected, a person detection event could leave the sensor on for a long time erroneously - you've been warned.
+As you can see there are a few sensor attributes which power the sensor.  In particular, I developed a technique to store the previous time the motion sensor was on such that I can calculate the time delta between 'motion on' events to determine whether the sensor should stay on if there are a succession of motion events after the AI person event is triggered.  If there is a motion event within the delta time, the AI motion sensor will stay on even if there hasn't been another person event in hours.  
 
-
+**Warning** Obviously if your motion sensor is set to highly sensitive and there is a wind storm or something that causes a lot of motion to be detected, a person detection event could leave the sensor on for a long time erroneously.
 
 ## Configuration
-There are three configuration options which you edit directly in the template sensor.  These are in the attributes section near the top of the sensor template.
+There are three configuration options which you edit directly in the each template sensor.  These are in the attributes section near the top of the sensor template.
 
 ### Sensor names
 The first two are for the pair of sensors/binary_sensors (AI and motion) you want to use.
@@ -60,11 +60,19 @@ Given Home Assistant's propensity to complain about template loops, the sensor i
               - binary_sensor.kitchen_person
               - media_player.tv_family_room
 
-## Download
-Download the full template sensor package
-
-Download 
-If you've never done this before, simply add this code to your configuration.yaml file using your favorite file editor.  There are 2 sensors and 2 binary sensors to show you how to add multiple sensors.   Then go to Developer tools/YAML and reload the template entities.  The next step will be to play around with the sensitivity of your Person and Motion sensors so they trigger frequently but you don't have both of them falsly triggering at the same time (and again, watch out for stormy nights!).
+## Install
+1. **Download the package file**: Download `simple_lock_manager_package.yaml` from this repository
+2. **Create packages directory**: If you don't already have one, create a `packages` directory in your Home Assistant configuration directory
+3. **Copy the package**: Place `Simple_Lock_Manager_Package.yaml` in your `packages` directory
+4. **Enable packages in configuration.yaml**: Add the following to your `configuration.yaml` if not already present:
+   ```yaml
+   homeassistant:
+     packages: !include_dir_named packages
+   ```
+5. **Update the sensor names** and the binary_sensor names that the package will create to match your camera entities and any other sensors you will use to trigger
+6. **Copy the sensors** as many times as you need to for each of the cameras you want this capability for   
+7. **Reload YAML**: Go to Developer Tools/YAML and reload 'Template entities'
+8. Play around with the sensitivity of your Person and Motion sensors so they trigger frequently but you don't have both of them falsely triggering at the same time (and again, watch out for stormy nights!).
 
 Enjoy!
 
