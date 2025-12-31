@@ -9,7 +9,7 @@ template:
         - binary_sensor.kitchen_motion
         - binary_sensor.kitchen_person
         - media_player.tv_family_room
-  - binary_sensor:
+    binary_sensor:
      - name: Family Room Person Motion
        unique_id: "Family Room Person Motion"
        device_class: occupancy
