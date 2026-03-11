@@ -1,0 +1,868 @@
+# ChezAggar Weather Package
+# Contains all weather-related sensors for ChezAggar location
+
+template:
+  # Trigger-based sensors for forecast data
+  - trigger:
+      - platform: time_pattern
+        minutes: "/30"
+    action:
+      - service: weather.get_forecasts
+        data:
+          type: daily
+        target:
+          entity_id: weather.chezaggar
+        response_variable: daily
+    sensor:
+      - name: ChezAggar Weather Daily
+        unique_id: chezaggar_weather_daily
+        state: "{{ daily['weather.chezaggar'].forecast[0].condition }}"
+        attributes:
+          forecast: "{{ daily['weather.chezaggar'].forecast }}"
+
+  - trigger:
+      - platform: time_pattern
+        minutes: "/30"
+    action:
+      - service: weather.get_forecasts
+        data:
+          type: hourly
+        target:
+          entity_id: weather.chezaggar
+        response_variable: hourly
+    sensor:
+      - name: ChezAggar Weather Hourly
+        unique_id: chezaggar_weather_hourly
+        state: "{{ hourly['weather.chezaggar'].forecast[0].condition }}"
+        attributes:
+          forecast: "{{ hourly['weather.chezaggar'].forecast[:24] }}"
+
+  # Template sensors
+  - sensor:
+      - name: "ChezAggar Weather Forecast Today"
+        unique_id: chezaggar_weather_forecast_today
+        state: >
+          {% set today = now().date() %}
+          {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+          {% if forecast %}
+            {% for day in forecast %}
+              {% set forecast_date = day.datetime | as_datetime | default(none) %}
+              {% if forecast_date and forecast_date.date() == today %}
+                {{ day.condition | default('unknown') }}
+              {% endif %}
+            {% endfor %}
+          {% else %}
+            unknown
+          {% endif %}
+        icon: >
+          {% set today = now().date() %}
+          {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+          {% if forecast %}
+            {% for day in forecast %}
+              {% set forecast_date = day.datetime | as_datetime | default(none) %}
+              {% if forecast_date and forecast_date.date() == today %}
+                {% set condition = day.condition | default('unknown') %}
+                {% if condition == 'sunny' %}
+                  mdi:weather-sunny
+                {% elif condition == 'partlycloudy' %}
+                  mdi:weather-partly-cloudy
+                {% elif condition == 'cloudy' %}
+                  mdi:weather-cloudy
+                {% elif condition == 'rainy' %}
+                  mdi:weather-rainy
+                {% else %}
+                  mdi:weather-cloudy
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+          {% else %}
+            mdi:weather-cloudy
+          {% endif %}
+        availability: >
+          {{ state_attr('sensor.chezaggar_weather_daily', 'forecast') is not none }}
+        attributes:
+          datetime: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {{ day.datetime }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          condition: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {{ day.condition | default('unknown') }}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              unknown
+            {% endif %}
+          precipitation_probability: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {{ day.precipitation_probability | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              0
+            {% endif %}
+          cloud_coverage: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {{ day.cloud_coverage | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              0
+            {% endif %}
+          wind_bearing: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {{ day.wind_bearing | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              0
+            {% endif %}
+          temperature: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {{ day.temperature | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              0
+            {% endif %}
+          templow: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {{ day.templow | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              0
+            {% endif %}
+          wind_gust_speed: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {{ day.wind_gust_speed | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              0
+            {% endif %}
+          wind_speed: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {{ day.wind_speed | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              0
+            {% endif %}
+          precipitation: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {{ day.precipitation | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              0
+            {% endif %}
+          humidity: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {{ day.humidity | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              0
+            {% endif %}
+          last_updated: "{{ now().isoformat() }}"
+
+      - name: "ChezAggar Weather Forecast Tomorrow"
+        unique_id: chezaggar_weather_forecast_tomorrow
+        state: >-
+          {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+          {% if forecast %}
+            {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+            {% for day in forecast %}
+              {% set forecast_date = day.datetime | as_datetime | default(none) %}
+              {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                {{ day.condition | default('unknown') }}
+              {% endif %}
+            {% endfor %}
+          {% else %}
+            unavailable
+          {% endif %}
+        icon: >
+          {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+          {% if forecast %}
+            {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+            {% for day in forecast %}
+              {% set forecast_date = day.datetime | as_datetime | default(none) %}
+              {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                {% set condition = day.condition | default('unknown') %}
+                {% if condition == 'sunny' %}
+                  mdi:weather-sunny
+                {% elif condition == 'partlycloudy' %}
+                  mdi:weather-partly-cloudy
+                {% elif condition == 'cloudy' %}
+                  mdi:weather-cloudy
+                {% elif condition == 'rainy' %}
+                  mdi:weather-rainy
+                {% else %}
+                  mdi:weather-cloudy
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+          {% else %}
+            mdi:weather-cloudy
+          {% endif %}        
+        attributes:
+          condition: >-
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                  {{ day.condition | default('unknown') }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          temperature: >-
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                  {{ day.temperature | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          templow: >-
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                  {{ day.templow | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          precipitation: >-
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                  {{ day.precipitation | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          precipitation_probability: >-
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                  {{ day.precipitation_probability | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          wind_speed: >-
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                  {{ day.wind_speed | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          wind_bearing: >-
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                  {{ day.wind_bearing | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          wind_gust_speed: >-
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                  {{ day.wind_gust_speed | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          humidity: >-
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                  {{ day.humidity | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          cloud_coverage: >-
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                  {{ day.cloud_coverage | default(0) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          datetime: >-
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set tomorrow_date = (now().date() + timedelta(days=1)) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == tomorrow_date %}
+                  {{ day.datetime }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          last_updated: "{{ now().isoformat() }}"
+
+      - name: "ChezAggar Weather Forecast Tonight"
+        unique_id: chezaggar_weather_forecast_tonight
+        state: >-
+            {%- set hourly_forecast = state_attr('sensor.chezaggar_weather_hourly', 'forecast') -%}
+            {%- set local_now = now() -%}
+      
+            {# Define tonight's time range based on current time #}
+            {%- if local_now.hour >= 18 -%}
+              {# If it's after 6 PM, tonight starts now and goes to 6 AM tomorrow #}
+              {%- set tonight_start = local_now -%}
+              {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+            {%- else -%}
+              {# If it's before 6 PM, tonight starts at 6 PM today and goes to 6 AM tomorrow #}
+              {%- set tonight_start = local_now.replace(hour=18, minute=0, second=0, microsecond=0) -%}
+              {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+            {%- endif -%}
+      
+            {%- set ns = namespace(tonight_hours=[], min_temp=999, max_temp=-999, total_precip=0, max_precip_prob=0, conditions=[], wind_speeds=[], wind_gusts=[]) -%}
+      
+            {%- if hourly_forecast -%}
+              {%- for hour in hourly_forecast -%}
+                {%- set hour_dt = hour.datetime | as_datetime -%}
+                {%- if hour_dt -%}
+                  {# Convert UTC forecast time to local time #}
+                  {%- set local_hour_dt = hour_dt.astimezone() -%}
+                  {%- if local_hour_dt >= tonight_start and local_hour_dt <= tonight_end -%}
+                    {%- set ns.tonight_hours = ns.tonight_hours + [hour] -%}
+                    {%- set temp = hour.temperature | default(0) | float(0) -%}
+                    {%- if temp > 0 and temp < ns.min_temp -%}
+                      {%- set ns.min_temp = temp -%}
+                    {%- endif -%}
+                    {%- if temp > ns.max_temp -%}
+                      {%- set ns.max_temp = temp -%}
+                    {%- endif -%}
+                    {%- set precip = hour.precipitation | default(0) | float(0) -%}
+                    {%- set ns.total_precip = ns.total_precip + precip -%}
+                    {%- set precip_prob = hour.precipitation_probability | default(0) | int -%}
+                    {%- if precip_prob > ns.max_precip_prob -%}
+                      {%- set ns.max_precip_prob = precip_prob -%}
+                    {%- endif -%}
+                    {%- set wind_speed = hour.wind_speed | default(0) | float(0) -%}
+                    {%- set wind_gust = hour.wind_gust_speed | default(0) | float(0) -%}
+                    {%- set ns.wind_speeds = ns.wind_speeds + [wind_speed] -%}
+                    {%- set ns.wind_gusts = ns.wind_gusts + [wind_gust] -%}
+                    {%- if hour.condition and hour.condition not in ns.conditions -%}
+                      {%- set ns.conditions = ns.conditions + [hour.condition] -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+      
+            {%- if ns.tonight_hours | length > 0 and ns.min_temp < 999 -%}
+            Tonight's low will be around {{ ns.min_temp | round(0) | int }} degrees.
+            {%- set avg_wind = (ns.wind_speeds | sum / ns.wind_speeds | length) | round(1) -%}
+            {%- set max_wind_gust = ns.wind_gusts | max -%}
+            {%- if avg_wind > 15 -%}
+             Winds will be strong averaging {{ avg_wind }} mph with gusts up to {{ max_wind_gust | round(1) }} mph.
+            {%- elif avg_wind > 8 -%}
+             Expect moderate winds averaging {{ avg_wind }} mph with gusts up to {{ max_wind_gust | round(1) }} mph.
+            {%- else -%}
+             Winds will be light averaging {{ avg_wind }} mph.
+            {%- endif -%}
+            {%- if ns.total_precip > 0.05 -%}
+             Expect {{ ns.total_precip | round(2) }} inches of rain overnight with a {{ ns.max_precip_prob }}% chance.
+            {%- elif ns.max_precip_prob > 30 -%}
+             There's a {{ ns.max_precip_prob }}% chance of rain tonight.
+            {%- else -%}
+             No rain expected overnight.
+            {%- endif -%}
+            {%- else -%}
+            Tonight's forecast data is not available.
+            {%- endif -%}
+        attributes:
+            low_temperature: >-
+              {%- set hourly_forecast = state_attr('sensor.chezaggar_weather_hourly', 'forecast') -%}
+              {%- set local_now = now() -%}
+              {%- if local_now.hour >= 18 -%}
+                {%- set tonight_start = local_now -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- else -%}
+                {%- set tonight_start = local_now.replace(hour=18, minute=0, second=0, microsecond=0) -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- endif -%}
+              {%- set ns = namespace(min_temp=999) -%}
+              {%- if hourly_forecast -%}
+                {%- for hour in hourly_forecast -%}
+                  {%- set hour_dt = hour.datetime | as_datetime -%}
+                  {%- if hour_dt -%}
+                    {%- set local_hour_dt = hour_dt.astimezone() -%}
+                    {%- if local_hour_dt >= tonight_start and local_hour_dt <= tonight_end -%}
+                      {%- set temp = hour.temperature | default(0) | float(0) -%}
+                      {%- if temp > 0 and temp < ns.min_temp -%}
+                        {%- set ns.min_temp = temp -%}
+                      {%- endif -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {{ ns.min_temp if ns.min_temp < 999 else none }}
+            total_precipitation: >-
+              {%- set hourly_forecast = state_attr('sensor.chezaggar_weather_hourly', 'forecast') -%}
+              {%- set local_now = now() -%}
+              {%- if local_now.hour >= 18 -%}
+                {%- set tonight_start = local_now -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- else -%}
+                {%- set tonight_start = local_now.replace(hour=18, minute=0, second=0, microsecond=0) -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- endif -%}
+              {%- set ns = namespace(total_precip=0) -%}
+              {%- if hourly_forecast -%}
+                {%- for hour in hourly_forecast -%}
+                  {%- set hour_dt = hour.datetime | as_datetime -%}
+                  {%- if hour_dt -%}
+                    {%- set local_hour_dt = hour_dt.astimezone() -%}
+                    {%- if local_hour_dt >= tonight_start and local_hour_dt <= tonight_end -%}
+                      {%- set precip = hour.precipitation | default(0) | float(0) -%}
+                      {%- set ns.total_precip = ns.total_precip + precip -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {{ ns.total_precip | round(2) }}
+            max_precipitation_probability: >-
+              {%- set hourly_forecast = state_attr('sensor.chezaggar_weather_hourly', 'forecast') -%}
+              {%- set local_now = now() -%}
+              {%- if local_now.hour >= 18 -%}
+                {%- set tonight_start = local_now -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- else -%}
+                {%- set tonight_start = local_now.replace(hour=18, minute=0, second=0, microsecond=0) -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- endif -%}
+              {%- set ns = namespace(max_precip_prob=0) -%}
+              {%- if hourly_forecast -%}
+                {%- for hour in hourly_forecast -%}
+                  {%- set hour_dt = hour.datetime | as_datetime -%}
+                  {%- if hour_dt -%}
+                    {%- set local_hour_dt = hour_dt.astimezone() -%}
+                    {%- if local_hour_dt >= tonight_start and local_hour_dt <= tonight_end -%}
+                      {%- set precip_prob = hour.precipitation_probability | default(0) | int -%}
+                      {%- if precip_prob > ns.max_precip_prob -%}
+                        {%- set ns.max_precip_prob = precip_prob -%}
+                      {%- endif -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {{ ns.max_precip_prob }}
+            average_wind_speed: >-
+              {%- set hourly_forecast = state_attr('sensor.chezaggar_weather_hourly', 'forecast') -%}
+              {%- set local_now = now() -%}
+              {%- if local_now.hour >= 18 -%}
+                {%- set tonight_start = local_now -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- else -%}
+                {%- set tonight_start = local_now.replace(hour=18, minute=0, second=0, microsecond=0) -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- endif -%}
+              {%- set ns = namespace(wind_speeds=[]) -%}
+              {%- if hourly_forecast -%}
+                {%- for hour in hourly_forecast -%}
+                  {%- set hour_dt = hour.datetime | as_datetime -%}
+                  {%- if hour_dt -%}
+                    {%- set local_hour_dt = hour_dt.astimezone() -%}
+                    {%- if local_hour_dt >= tonight_start and local_hour_dt <= tonight_end -%}
+                      {%- set wind_speed = hour.wind_speed | default(0) | float(0) -%}
+                      {%- set ns.wind_speeds = ns.wind_speeds + [wind_speed] -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {{ (ns.wind_speeds | sum / ns.wind_speeds | length) | round(1) if ns.wind_speeds | length > 0 else 0 }}
+            max_wind_gust: >-
+              {%- set hourly_forecast = state_attr('sensor.chezaggar_weather_hourly', 'forecast') -%}
+              {%- set local_now = now() -%}
+              {%- if local_now.hour >= 18 -%}
+                {%- set tonight_start = local_now -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- else -%}
+                {%- set tonight_start = local_now.replace(hour=18, minute=0, second=0, microsecond=0) -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- endif -%}
+              {%- set ns = namespace(wind_gusts=[]) -%}
+              {%- if hourly_forecast -%}
+                {%- for hour in hourly_forecast -%}
+                  {%- set hour_dt = hour.datetime | as_datetime -%}
+                  {%- if hour_dt -%}
+                    {%- set local_hour_dt = hour_dt.astimezone() -%}
+                    {%- if local_hour_dt >= tonight_start and local_hour_dt <= tonight_end -%}
+                      {%- set wind_gust = hour.wind_gust_speed | default(0) | float(0) -%}
+                      {%- set ns.wind_gusts = ns.wind_gusts + [wind_gust] -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {{ ns.wind_gusts | max if ns.wind_gusts | length > 0 else 0 }}
+            conditions: >-
+              {%- set hourly_forecast = state_attr('sensor.chezaggar_weather_hourly', 'forecast') -%}
+              {%- set local_now = now() -%}
+              {%- if local_now.hour >= 18 -%}
+                {%- set tonight_start = local_now -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- else -%}
+                {%- set tonight_start = local_now.replace(hour=18, minute=0, second=0, microsecond=0) -%}
+                {%- set tonight_end = (local_now + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0) -%}
+              {%- endif -%}
+              {%- set ns = namespace(conditions=[]) -%}
+              {%- if hourly_forecast -%}
+                {%- for hour in hourly_forecast -%}
+                  {%- set hour_dt = hour.datetime | as_datetime -%}
+                  {%- if hour_dt -%}
+                    {%- set local_hour_dt = hour_dt.astimezone() -%}
+                    {%- if local_hour_dt >= tonight_start and local_hour_dt <= tonight_end -%}
+                      {%- if hour.condition and hour.condition not in ns.conditions -%}
+                        {%- set ns.conditions = ns.conditions + [hour.condition] -%}
+                      {%- endif -%}
+                    {%- endif -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {{ ns.conditions | join(', ') }}
+
+      - name: "ChezAggar Precipitation"
+        unique_id: chezaggar_precipitation
+        state: >
+          {% set today = now().date() %}
+          {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+          {% if forecast %}
+            {% set ns = namespace(found=false, value=0) %}
+            {% for day in forecast %}
+              {% set forecast_date = day.datetime | as_datetime | default(none) %}
+              {% if forecast_date and forecast_date.date() == today %}
+                {% set ns.found = true %}
+                {% set ns.value = day.precipitation | default(0) %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.value }}
+          {% else %}
+            0
+          {% endif %}
+        unit_of_measurement: in
+        device_class: precipitation
+        state_class: measurement
+        availability: >
+          {{ state_attr('sensor.chezaggar_weather_daily', 'forecast') is not none }}
+        attributes:
+          precipitation_probability: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set ns = namespace(found=false, value=0) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {% set ns.found = true %}
+                  {% set ns.value = day.precipitation_probability | default(0) %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.value }}
+            {% else %}
+              0
+            {% endif %}
+          condition: >
+            {% set today = now().date() %}
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% if forecast %}
+              {% set ns = namespace(found=false, value='unknown') %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% if forecast_date and forecast_date.date() == today %}
+                  {% set ns.found = true %}
+                  {% set ns.value = day.condition | default('unknown') %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.value }}
+            {% else %}
+              unknown
+            {% endif %}
+          next_significant_rain_date: >
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% set threshold = 0.1 %}
+            {% if forecast %}
+              {% set ns = namespace(found=false) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% set precipitation = day.precipitation | default(0) %}
+                {% set probability = day.precipitation_probability | default(0) %}
+                {% if forecast_date and (precipitation > threshold or probability > 50) and not ns.found %}
+                  {% set ns.found = true %}
+                  {{ forecast_date.strftime('%Y-%m-%d') }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          next_significant_rain_local_time: >
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% set threshold = 0.1 %}
+            {% if forecast %}
+              {% set ns = namespace(found=false) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% set precipitation = day.precipitation | default(0) %}
+                {% set probability = day.precipitation_probability | default(0) %}
+                {% if forecast_date and (precipitation > threshold or probability > 50) and not ns.found %}
+                  {% set ns.found = true %}
+                  {{ (forecast_date | as_timestamp | timestamp_local) }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          next_precipitation_amount: >
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% set threshold = 0.1 %}
+            {% if forecast %}
+              {% set ns = namespace(found=false) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% set precipitation = day.precipitation | default(0) %}
+                {% set probability = day.precipitation_probability | default(0) %}
+                {% if forecast_date and (precipitation > threshold or probability > 50) and not ns.found %}
+                  {% set ns.found = true %}
+                  {{ precipitation }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          next_precipitation_probability: >
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% set threshold = 0.1 %}
+            {% if forecast %}
+              {% set ns = namespace(found=false) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% set precipitation = day.precipitation | default(0) %}
+                {% set probability = day.precipitation_probability | default(0) %}
+                {% if forecast_date and (precipitation > threshold or probability > 50) and not ns.found %}
+                  {% set ns.found = true %}
+                  {{ probability }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          days_until_rain: >
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% set threshold = 0.1 %}
+            {% set today = now().date() %}
+            {% if forecast %}
+              {% set ns = namespace(found=false) %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% set precipitation = day.precipitation | default(0) %}
+                {% set probability = day.precipitation_probability | default(0) %}
+                {% if forecast_date and (precipitation > threshold or probability > 50) and not ns.found %}
+                  {% set ns.found = true %}
+                  {{ (forecast_date.date() - today).days }}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          rainfall_frequency: >
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% set threshold = 0.05 %}
+            {% set total_days = 0 %}
+            {% set rain_days = 0 %}
+            {% if forecast %}
+              {% for day in forecast %}
+                {% set precipitation = day.precipitation | default(0) %}
+                {% set probability = day.precipitation_probability | default(0) %}
+                {% set total_days = total_days + 1 %}
+                {% if precipitation > threshold or probability > 30 %}
+                  {% set rain_days = rain_days + 1 %}
+                {% endif %}
+              {% endfor %}
+              {% if total_days > 0 %}
+                {% set frequency_pct = (rain_days / total_days * 100) | round(0) %}
+                {% if frequency_pct >= 70 %}
+                  frequent
+                {% elif frequency_pct >= 40 %}
+                  intermittent
+                {% elif frequency_pct >= 20 %}
+                  occasional
+                {% else %}
+                  rare
+                {% endif %}
+              {% else %}
+                unknown
+              {% endif %}
+            {% else %}
+              unknown
+            {% endif %}
+          friendly_forecast: >
+            {% set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') %}
+            {% set threshold = 0.1 %}
+            {% set today = now().date() %}
+            {% set current_time = now() %}
+            {% if forecast %}
+              {% set ns = namespace(found=false, message='No rain forecasted') %}
+              {% for day in forecast %}
+                {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                {% set precipitation = day.precipitation | default(0) %}
+                {% set probability = day.precipitation_probability | default(0) %}
+                {% if forecast_date and (precipitation > threshold or probability > 50) and not ns.found %}
+                  {% set ns.found = true %}
+                  {% set days_diff = (forecast_date.date() - today).days %}
+                  {% set local_time = (forecast_date | as_timestamp | timestamp_local | as_datetime) %}
+                  
+                  {# Determine rain intensity #}
+                  {% if precipitation >= 0.5 %}
+                    {% set intensity = "heavy" %}
+                  {% elif precipitation >= 0.25 %}
+                    {% set intensity = "moderate" %}
+                  {% elif precipitation >= 0.1 %}
+                    {% set intensity = "light" %}
+                  {% else %}
+                    {% set intensity = "light" %}
+                  {% endif %}
+                  
+                  {# Determine rain pattern based on probability and amount #}
+                  {% if probability >= 80 and precipitation >= 0.3 %}
+                    {% set pattern = "steady" %}
+                  {% elif probability >= 60 and precipitation >= 0.15 %}
+                    {% set pattern = "intermittent" %}
+                  {% elif probability < 70 %}
+                    {% set pattern = "scattered" %}
+                  {% else %}
+                    {% set pattern = "steady" %}
+                  {% endif %}
+                  
+                  {# Build friendly message #}
+                  {% if days_diff == 0 %}
+                    {% set ns.message = intensity + " " + pattern + " rain today around " + local_time.strftime('%-I%p').lower() %}
+                  {% elif days_diff == 1 %}
+                    {% set ns.message = intensity + " " + pattern + " rain tomorrow" %}
+                  {% elif days_diff <= 3 %}
+                    {% set ns.message = intensity + " " + pattern + " rain on " + local_time.strftime('%A') %}
+                  {% else %}
+                    {% set ns.message = intensity + " " + pattern + " rain on " + local_time.strftime('%A, %b %-d') %}
+                  {% endif %}
+                  
+                  {# Add probability context if moderate certainty #}
+                  {% if probability < 80 and probability > 40 %}
+                    {% set ns.message = ns.message + " (" + probability|round(0)|string + "% chance)" %}
+                  {% endif %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.message }}
+            {% else %}
+              No forecast data available
+            {% endif %}
+          threshold_used: "{{ 0.1 }}"
+          last_updated: "{{ now().isoformat() }}"
+      - name: "ChezAggar Weather Icon"
+        unique_id: chezaggar_weather_icon
+        state: >
+          {% set cond = states('weather.chezaggar') | lower %}
+          {% if cond in ['sunny', 'clear'] %}
+            mdi:weather-sunny
+          {% elif cond in ['clear-night'] %}
+            mdi:weather-night
+          {% elif cond in ['partlycloudy', 'partly_cloudy'] %}
+            mdi:weather-partly-cloudy
+          {% elif cond in ['cloudy', 'overcast'] %}
+            mdi:weather-cloudy
+          {% elif cond in ['rainy', 'rain', 'light_rain'] %}
+            mdi:weather-rainy
+          {% elif cond in ['pouring', 'heavy_rain'] %}
+            mdi:weather-pouring
+          {% elif cond in ['snowy', 'snow', 'snowy-rainy'] %}
+            mdi:weather-snowy
+          {% elif cond in ['hail'] %}
+            mdi:weather-hail
+          {% elif cond in ['lightning', 'thunderstorm'] %}
+            mdi:weather-lightning
+          {% elif cond in ['lightning-rainy', 'thunderstorm_with_rain'] %}
+            mdi:weather-lightning-rainy
+          {% elif cond in ['fog', 'mist', 'haze'] %}
+            mdi:weather-fog
+          {% elif cond in ['windy'] %}
+            mdi:weather-windy
+          {% else %}
+            mdi:weather-cloudy
+          {% endif %}
