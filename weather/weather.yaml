@@ -780,55 +780,158 @@ template:
             {% set today = now().date() %}
             {% set current_time = now() %}
             {% if forecast %}
-              {% set ns = namespace(found=false, message='No rain forecasted') %}
+              {% set ns = namespace(found=false, message='No rain forecasted', rain_start=none, rain_end=none, total_precip=0, in_rain=false) %}
               {% for day in forecast %}
                 {% set forecast_date = day.datetime | as_datetime | default(none) %}
                 {% set precipitation = day.precipitation | default(0) %}
                 {% set probability = day.precipitation_probability | default(0) %}
-                {% if forecast_date and (precipitation > threshold or probability > 50) and not ns.found %}
-                  {% set ns.found = true %}
-                  {% set days_diff = (forecast_date.date() - today).days %}
-                  {% set local_time = (forecast_date | as_timestamp | timestamp_local | as_datetime) %}
-                  
-                  {# Determine rain intensity #}
-                  {% if precipitation >= 0.5 %}
-                    {% set intensity = "heavy" %}
-                  {% elif precipitation >= 0.25 %}
-                    {% set intensity = "moderate" %}
-                  {% elif precipitation >= 0.1 %}
-                    {% set intensity = "light" %}
+                
+                {# Check if this day has significant rain #}
+                {% set has_rain = forecast_date and (precipitation > threshold or probability > 50) %}
+                
+                {% if has_rain %}
+                  {# Mark the start of rain if not already in a rain period #}
+                  {% if not ns.in_rain %}
+                    {% set ns.rain_start = forecast_date %}
+                    {% set ns.in_rain = true %}
+                    {% set ns.total_precip = precipitation %}
                   {% else %}
-                    {% set intensity = "light" %}
+                    {# Continue accumulating rain #}
+                    {% set ns.total_precip = ns.total_precip + precipitation %}
                   {% endif %}
-                  
-                  {# Determine rain pattern based on probability and amount #}
-                  {% if probability >= 80 and precipitation >= 0.3 %}
-                    {% set pattern = "steady" %}
-                  {% elif probability >= 60 and precipitation >= 0.15 %}
-                    {% set pattern = "intermittent" %}
-                  {% elif probability < 70 %}
-                    {% set pattern = "scattered" %}
-                  {% else %}
-                    {% set pattern = "steady" %}
-                  {% endif %}
-                  
-                  {# Build friendly message #}
-                  {% if days_diff == 0 %}
-                    {% set ns.message = intensity + " " + pattern + " rain today around " + local_time.strftime('%-I%p').lower() %}
-                  {% elif days_diff == 1 %}
-                    {% set ns.message = intensity + " " + pattern + " rain tomorrow" %}
-                  {% elif days_diff <= 3 %}
-                    {% set ns.message = intensity + " " + pattern + " rain on " + local_time.strftime('%A') %}
-                  {% else %}
-                    {% set ns.message = intensity + " " + pattern + " rain on " + local_time.strftime('%A, %b %-d') %}
-                  {% endif %}
-                  
-                  {# Add probability context if moderate certainty #}
-                  {% if probability < 80 and probability > 40 %}
-                    {% set ns.message = ns.message + " (" + probability|round(0)|string + "% chance)" %}
+                  {# Update potential end date #}
+                  {% set ns.rain_end = forecast_date %}
+                {% else %}
+                  {# No rain this day - if we were in a rain period, it has ended #}
+                  {% if ns.in_rain and not ns.found %}
+                    {% set ns.found = true %}
                   {% endif %}
                 {% endif %}
               {% endfor %}
+              
+              {# If we found a rain period, build the friendly message #}
+              {% if ns.rain_start %}
+                {% set start_days_diff = (ns.rain_start.date() - today).days %}
+                {% set end_days_diff = (ns.rain_end.date() - today).days %}
+                {% set start_local_time = (ns.rain_start | as_timestamp | timestamp_local | as_datetime) %}
+                {% set end_local_time = (ns.rain_end | as_timestamp | timestamp_local | as_datetime) %}
+                
+                {# Check if start time is in the past (more than 1 hour ago) #}
+                {% set hours_since_start = ((current_time | as_timestamp) - (start_local_time | as_timestamp)) / 3600 %}
+                {% set rain_already_started = hours_since_start > 1 %}
+                
+                {# Calculate duration in days #}
+                {% set rain_duration = end_days_diff - start_days_diff %}
+                
+                {# Get the first day's precipitation and probability for intensity #}
+                {% set first_day_precip = 0 %}
+                {% set first_day_prob = 0 %}
+                {% for day in forecast %}
+                  {% set forecast_date = day.datetime | as_datetime | default(none) %}
+                  {% if forecast_date and forecast_date == ns.rain_start %}
+                    {% set first_day_precip = day.precipitation | default(0) %}
+                    {% set first_day_prob = day.precipitation_probability | default(0) %}
+                  {% endif %}
+                {% endfor %}
+                
+                {# Determine rain intensity based on first day #}
+                {% if first_day_precip >= 0.5 %}
+                  {% set intensity = "heavy" %}
+                {% elif first_day_precip >= 0.25 %}
+                  {% set intensity = "moderate" %}
+                {% elif first_day_precip >= 0.1 %}
+                  {% set intensity = "light" %}
+                {% else %}
+                  {% set intensity = "light" %}
+                {% endif %}
+                
+                {# Determine rain pattern based on probability and amount #}
+                {% if first_day_prob >= 80 and first_day_precip >= 0.3 %}
+                  {% set pattern = "steady" %}
+                {% elif first_day_prob >= 60 and first_day_precip >= 0.15 %}
+                  {% set pattern = "intermittent" %}
+                {% elif first_day_prob < 70 %}
+                  {% set pattern = "scattered" %}
+                {% else %}
+                  {% set pattern = "steady" %}
+                {% endif %}
+                
+                {# Build the start portion of the message #}
+                {% if rain_already_started %}
+                  {# Rain has already started - just say it's happening now #}
+                  {% set start_msg = "today" %}
+                {% elif start_days_diff == 0 %}
+                  {% set start_msg = "today around " + start_local_time.strftime('%-I%p').lower() %}
+                {% elif start_days_diff == 1 %}
+                  {% set start_msg = "tomorrow" %}
+                {% elif start_days_diff <= 3 %}
+                  {% set start_msg = "on " + start_local_time.strftime('%A') %}
+                {% else %}
+                  {% set start_msg = "on " + start_local_time.strftime('%A, %b %-d') %}
+                {% endif %}
+                
+                {# Build the end portion of the message #}
+                {% if start_days_diff == end_days_diff %}
+                  {# Rain starts and ends same day #}
+                  {% if rain_already_started %}
+                    {% set ns.message = intensity + " " + pattern + " rain continuing " + start_msg %}
+                  {% else %}
+                    {% set ns.message = intensity + " " + pattern + " rain " + start_msg %}
+                  {% endif %}
+                {% else %}
+                  {# Rain spans multiple days #}
+                  {% if rain_duration >= 4 %}
+                    {# Long rain period - be vague #}
+                    {% if rain_already_started %}
+                      {% set ns.message = intensity + " " + pattern + " rain continuing through the week" %}
+                    {% elif start_days_diff == 0 %}
+                      {% set ns.message = intensity + " " + pattern + " rain " + start_msg + ", continuing through the week" %}
+                    {% else %}
+                      {% set ns.message = intensity + " " + pattern + " rain " + start_msg + ", lasting several days" %}
+                    {% endif %}
+                  {% elif rain_duration >= 2 %}
+                    {# Medium rain period - mention it will last a few days #}
+                    {% if end_days_diff == 0 %}
+                      {% set end_msg = "later today" %}
+                    {% elif end_days_diff == 1 %}
+                      {% set end_msg = "tomorrow" %}
+                    {% else %}
+                      {% set end_msg = end_local_time.strftime('%A') %}
+                    {% endif %}
+                    
+                    {% if rain_already_started %}
+                      {% set ns.message = intensity + " " + pattern + " rain continuing into " + end_msg %}
+                    {% else %}
+                      {% set ns.message = intensity + " " + pattern + " rain " + start_msg + " into " + end_msg %}
+                    {% endif %}
+                  {% else %}
+                    {# Short rain period - be specific #}
+                    {% if end_days_diff == 0 %}
+                      {% set end_msg = "later today" %}
+                    {% elif end_days_diff == 1 %}
+                      {% set end_msg = "tomorrow" %}
+                    {% else %}
+                      {% set end_msg = end_local_time.strftime('%A') %}
+                    {% endif %}
+                    
+                    {% if rain_already_started %}
+                      {% set ns.message = intensity + " " + pattern + " rain continuing, ending " + end_msg %}
+                    {% else %}
+                      {% set ns.message = intensity + " " + pattern + " rain " + start_msg + ", ending " + end_msg %}
+                    {% endif %}
+                  {% endif %}
+                {% endif %}
+                
+                {# Add total precipitation if multi-day and significant #}
+                {% if rain_duration >= 2 and ns.total_precip >= 0.5 %}
+                  {% set ns.message = ns.message + " (total: " + (ns.total_precip | round(2) | string) + " in)" %}
+                {% endif %}
+                
+                {# Add probability context if moderate certainty #}
+                {% if first_day_prob < 80 and first_day_prob > 40 %}
+                  {% set ns.message = ns.message + " (" + first_day_prob|round(0)|string + "% chance)" %}
+                {% endif %}
+              {% endif %}
               {{ ns.message }}
             {% else %}
               No forecast data available
