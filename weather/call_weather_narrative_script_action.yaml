@@ -1,0 +1,5 @@
+action: script.get_weather_narrative
+metadata: {}
+data: {}
+response_variable: weather_data
+# a subsequent action should use {{weather_data.narrative}} to render the results of the script
