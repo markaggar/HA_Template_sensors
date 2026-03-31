@@ -1,3 +1,6 @@
+# Install the weather.yaml package and reload templates
+# Replace all instances of weather.chezaggar with your weather sensor, and paste the following into a new script. Refer to the script action yaml for info on how to call this script
+
 fields:
   time_of_day:
     description: "Optional: Override time detection (morning, afternoon, evening, night)"
@@ -33,8 +36,8 @@ sequence:
         {%- endif -%}
 
         {%- set today_sensor_state =
-        states('sensor.chezaggar_weather_forecast_today') -%} {%- set
-        precipitation_sensor_state = states('sensor.chezaggar_precipitation')
+        states('sensor.weather_forecast_today') -%} {%- set
+        precipitation_sensor_state = states('sensor.precipitation')
         -%} {%- set current_weather_state = states('weather.chezaggar') -%}
 
         {%- if today_sensor_state != 'unavailable' and today_sensor_state !=
@@ -60,11 +63,11 @@ sequence:
 
         {# Temperature forecast - show different info based on time of day #}
         {%- set today_high =
-        state_attr('sensor.chezaggar_weather_forecast_today', 'temperature') |
+        state_attr('sensor.weather_forecast_today', 'temperature') |
         int -%} {%- set today_low =
-        state_attr('sensor.chezaggar_weather_forecast_today', 'templow') | int
+        state_attr('sensor.weather_forecast_today', 'templow') | int
         -%} {%- set tonight_state =
-        states('sensor.chezaggar_weather_forecast_tonight') -%} {%- set
+        states('sensor.weather_forecast_tonight') -%} {%- set
         has_tonight_forecast = tonight_state != 'unavailable' and tonight_state
         != 'unknown' and tonight_state | length > 10 -%}
 
@@ -75,13 +78,13 @@ sequence:
           {%- endif -%}
         {%- elif (is_evening or is_night) and not has_tonight_forecast -%}
           {# Only show overnight low here if we don't have a detailed tonight forecast #}
-          {%- set tonight_low = state_attr('sensor.chezaggar_weather_forecast_tonight', 'low_temperature') | default(today_low) -%}
+          {%- set tonight_low = state_attr('sensor.weather_forecast_tonight', 'low_temperature') | default(today_low) -%}
          The overnight low will be around {{ tonight_low | int }} degrees.
         {%- endif %}
 
         {# Humidity conditions #} {%- set current_humidity =
         state_attr('weather.chezaggar', 'humidity') | float(0) -%} {%- set
-        dew_point = state_attr('sensor.chezaggar_weather_forecast_today',
+        dew_point = state_attr('sensor.weather_forecast_today',
         'dew_point') | float(0) -%}
 
         {%- if (current_temp > 75 and current_humidity > 75) or (current_temp >
@@ -96,9 +99,9 @@ sequence:
         current_humidity | round(0) | int }} percent. {%- endif %}
 
         {# Wind conditions #} {%- set wind_speed =
-        state_attr('sensor.chezaggar_weather_forecast_today', 'wind_speed') |
+        state_attr('sensor.weather_forecast_today', 'wind_speed') |
         float(0) -%} {%- set wind_gust_speed =
-        state_attr('sensor.chezaggar_weather_forecast_today', 'wind_gust_speed')
+        state_attr('sensor.weather_forecast_today', 'wind_gust_speed')
         | float(0) -%}
 
         {%- if wind_speed > 20 %} Strong winds at {{ wind_speed | round(1) }}
@@ -112,7 +115,7 @@ sequence:
 
         {# Cloud coverage - only during morning and early afternoon #} {%- if
         is_morning or (is_afternoon and hour < 15) -%}
-          {%- set cloud_coverage = state_attr('sensor.chezaggar_weather_forecast_today', 'cloud_coverage') | int -%}
+          {%- set cloud_coverage = state_attr('sensor.weather_forecast_today', 'cloud_coverage') | int -%}
           {%- if cloud_coverage >= 90 %} Overcast skies throughout the day.
           {%- elif cloud_coverage >= 70 %} Mostly cloudy conditions expected.
           {%- elif cloud_coverage >= 40 %} Partly cloudy skies.
@@ -122,7 +125,7 @@ sequence:
 
         {# UV Index - only during daytime #} {%- if is_morning or is_afternoon
         -%}
-          {%- set uv_index = state_attr('sensor.chezaggar_weather_forecast_today', 'uv_index') | float(0) -%}
+          {%- set uv_index = state_attr('sensor.weather_forecast_today', 'uv_index') | float(0) -%}
           {%- if uv_index >= 8 %} UV index is very high at {{ uv_index | round(1) }}, sun protection is essential.
           {%- elif uv_index >= 6 %} UV index is high at {{ uv_index | round(1) }}, consider sun protection.
           {%- elif uv_index >= 3 and is_morning %} UV index will reach {{ uv_index | round(1) }} today, moderate sun protection recommended.
@@ -130,7 +133,7 @@ sequence:
         {%- endif %}
 
         {# Analyze hourly forecast for rain timing today #} {%- set
-        hourly_forecast = state_attr('sensor.chezaggar_weather_hourly',
+        hourly_forecast = state_attr('sensor.weather_hourly',
         'forecast') -%} {%- set current_time = now() -%} {%- set today_end =
         now().replace(hour=23, minute=59, second=59) -%} {%- set ns =
         namespace(rain_start=none, rain_end=none, currently_raining=false,
@@ -166,10 +169,10 @@ sequence:
         {%- endif -%}
 
         {# Today's precipitation status with timing #} {%- set today_precip =
-        state_attr('sensor.chezaggar_precipitation', 'state') | float(0) -%} {%-
-        set today_precip_prob = state_attr('sensor.chezaggar_precipitation',
+        state_attr('sensor.precipitation', 'state') | float(0) -%} {%-
+        set today_precip_prob = state_attr('sensor.precipitation',
         'precipitation_probability') | int -%} {%- set days_until_rain =
-        state_attr('sensor.chezaggar_precipitation', 'days_until_rain') |
+        state_attr('sensor.precipitation', 'days_until_rain') |
         default(-1) | int -%}
 
         {%- if days_until_rain == 0 and (today_precip > 0.1 or today_precip_prob
@@ -205,7 +208,7 @@ sequence:
         No rain expected overnight. {%- endif %}
 
         {# Extended precipitation forecast #} {%- set friendly_forecast =
-        state_attr('sensor.chezaggar_precipitation', 'friendly_forecast') |
+        state_attr('sensor.precipitation', 'friendly_forecast') |
         default('') -%} {%- set forecast_mentions_multiple_days = 'several days'
         in friendly_forecast | lower or 'through' in friendly_forecast | lower
         or 'into' in friendly_forecast | lower or 'ending' in friendly_forecast
@@ -225,7 +228,7 @@ sequence:
         {# Multi-day rain outlook - only if NOT already mentioned in
         friendly_forecast #} {%- if not forecast_mentions_multiple_days -%}
           {%- set ns = namespace(rainy_days=[]) -%}
-          {%- set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') -%}
+          {%- set forecast = state_attr('sensor.weather_daily', 'forecast') -%}
           {%- set threshold = 0.1 -%}
 
           {%- if forecast -%}
@@ -257,11 +260,11 @@ sequence:
         {{ tonight_state }} {%- endif %}
 
         {# Tomorrow's preview #} {%- if is_morning or is_evening or is_night -%}
-          {%- set tomorrow = state_attr('sensor.chezaggar_weather_forecast_tomorrow', 'condition') -%}
-          {%- set tomorrow_high = state_attr('sensor.chezaggar_weather_forecast_tomorrow', 'temperature') | int -%}
-          {%- set tomorrow_low = state_attr('sensor.chezaggar_weather_forecast_tomorrow', 'templow') | int -%}
-          {%- set tomorrow_precip_prob = state_attr('sensor.chezaggar_weather_forecast_tomorrow', 'precipitation_probability') | int -%}
-          {%- set tomorrow_precip = state_attr('sensor.chezaggar_weather_forecast_tomorrow', 'precipitation') | float(0) -%}
+          {%- set tomorrow = state_attr('sensor.weather_forecast_tomorrow', 'condition') -%}
+          {%- set tomorrow_high = state_attr('sensor.weather_forecast_tomorrow', 'temperature') | int -%}
+          {%- set tomorrow_low = state_attr('sensor.weather_forecast_tomorrow', 'templow') | int -%}
+          {%- set tomorrow_precip_prob = state_attr('sensor.weather_forecast_tomorrow', 'precipitation_probability') | int -%}
+          {%- set tomorrow_precip = state_attr('sensor.weather_forecast_tomorrow', 'precipitation') | float(0) -%}
           {%- set forecast_mentions_tomorrow = 'tomorrow' in friendly_forecast | lower -%}
           
           {%- if tomorrow and tomorrow != 'unavailable' %}
@@ -285,7 +288,7 @@ sequence:
         {%- endif %}
 
         {# Activity recommendations based on conditions #} {%- if is_morning -%}
-          {%- set cloud_coverage = state_attr('sensor.chezaggar_weather_forecast_today', 'cloud_coverage') | int -%}
+          {%- set cloud_coverage = state_attr('sensor.weather_forecast_today', 'cloud_coverage') | int -%}
           {%- if current_temp >= 65 and current_temp <= 75 and wind_speed < 10 and days_until_rain != 0 and cloud_coverage < 60 %}
 
         Perfect weather for outdoor activities today!
