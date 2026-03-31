@@ -1,0 +1,321 @@
+fields:
+  time_of_day:
+    description: "Optional: Override time detection (morning, afternoon, evening, night)"
+    example: morning
+    selector:
+      select:
+        options:
+          - morning
+          - afternoon
+          - evening
+          - night
+  debug_mode:
+    selector:
+      boolean: {}
+    default: false
+sequence:
+  - variables:
+      weather_text: >-
+        {%- set hour = now().hour -%}
+
+        {# Use override if provided, otherwise detect from current time #}  {%-
+        if time_of_day is defined and time_of_day in ['morning',
+        'afternoon','evening', 'night'] -%}
+          {%- set is_morning = time_of_day == 'morning' -%}
+          {%- set is_afternoon = time_of_day == 'afternoon' -%}
+          {%- set is_evening = time_of_day == 'evening' -%}
+          {%- set is_night = time_of_day == 'night' -%}
+        {%- else -%}
+          {%- set is_morning = hour >= 5 and hour < 12 -%}
+          {%- set is_afternoon = hour >= 12 and hour < 17 -%}
+          {%- set is_evening = hour >= 17 and hour < 21 -%}
+          {%- set is_night = hour >= 21 or hour < 5 -%}
+        {%- endif -%}
+
+        {%- set today_sensor_state =
+        states('sensor.chezaggar_weather_forecast_today') -%} {%- set
+        precipitation_sensor_state = states('sensor.chezaggar_precipitation')
+        -%} {%- set current_weather_state = states('weather.chezaggar') -%}
+
+        {%- if today_sensor_state != 'unavailable' and today_sensor_state !=
+        'unknown' and current_weather_state != 'unavailable' and
+        current_weather_state != 'unknown' -%}
+
+        {# Greeting based on time of day #} {%- if is_morning -%} Good morning!
+        {%- elif is_afternoon -%} Good afternoon! {%- elif is_evening -%} Good
+        evening! {%- else -%} Good night! {%- endif %}
+
+        {# Current conditions #} {%- set current_temp =
+        state_attr('weather.chezaggar', 'temperature') | float(0) -%} {%- set
+        feels_like = state_attr('weather.chezaggar', 'apparent_temperature') |
+        default(none) -%}
+
+        {%- if is_morning -%} Today is {{ now().strftime('%A, %B %d') }}. It's
+        {{ current_weather_state | lower }} and {{ current_temp | int }}
+        degrees. {%- else -%} It's {{ now().strftime('%A, %B %d') }} and
+        currently {{ current_weather_state | lower }} at {{ current_temp | int
+        }} degrees. {%- endif -%} {%- if feels_like and (feels_like | int -
+        current_temp | int) | abs > 5 %} It feels like {{ feels_like | int }}
+        degrees.{%- endif %}
+
+        {# Temperature forecast - show different info based on time of day #}
+        {%- set today_high =
+        state_attr('sensor.chezaggar_weather_forecast_today', 'temperature') |
+        int -%} {%- set today_low =
+        state_attr('sensor.chezaggar_weather_forecast_today', 'templow') | int
+        -%} {%- set tonight_state =
+        states('sensor.chezaggar_weather_forecast_tonight') -%} {%- set
+        has_tonight_forecast = tonight_state != 'unavailable' and tonight_state
+        != 'unknown' and tonight_state | length > 10 -%}
+
+        {%- if is_morning %} The high today will be {{ today_high }} degrees and
+        low {{ today_low }} degrees. {%- elif is_afternoon -%}
+          {%- if current_temp >= today_high - 3 %} We've reached the high of {{ today_high }} degrees for today, with a low of {{ today_low }} degrees tonight.
+          {%- else %} The high today will be {{ today_high }} degrees, with a low of {{ today_low }} degrees tonight.
+          {%- endif -%}
+        {%- elif (is_evening or is_night) and not has_tonight_forecast -%}
+          {# Only show overnight low here if we don't have a detailed tonight forecast #}
+          {%- set tonight_low = state_attr('sensor.chezaggar_weather_forecast_tonight', 'low_temperature') | default(today_low) -%}
+         The overnight low will be around {{ tonight_low | int }} degrees.
+        {%- endif %}
+
+        {# Humidity conditions #} {%- set current_humidity =
+        state_attr('weather.chezaggar', 'humidity') | float(0) -%} {%- set
+        dew_point = state_attr('sensor.chezaggar_weather_forecast_today',
+        'dew_point') | float(0) -%}
+
+        {%- if (current_temp > 75 and current_humidity > 75) or (current_temp >
+        80 and current_humidity > 70) or dew_point >= 70 -%}
+          {%- if dew_point >= 70 %} Oppressive humidity at {{ current_humidity | round(0) | int }} percent, it will feel very muggy.
+          {%- elif dew_point >= 65 %} High humidity at {{ current_humidity | round(0) | int }} percent, it may feel uncomfortable.
+          {%- else %} Humidity is high at {{ current_humidity | round(0) | int }} percent, so it may feel muggy.
+          {%- endif -%}
+        {%- elif current_humidity < 30 %} Humidity is low at {{ current_humidity
+        | round(0) | int }} percent, so it may feel dry. {%- elif dew_point >=
+        60 and not is_night %} Noticeably humid conditions with humidity at {{
+        current_humidity | round(0) | int }} percent. {%- endif %}
+
+        {# Wind conditions #} {%- set wind_speed =
+        state_attr('sensor.chezaggar_weather_forecast_today', 'wind_speed') |
+        float(0) -%} {%- set wind_gust_speed =
+        state_attr('sensor.chezaggar_weather_forecast_today', 'wind_gust_speed')
+        | float(0) -%}
+
+        {%- if wind_speed > 20 %} Strong winds at {{ wind_speed | round(1) }}
+        miles per hour with gusts up to {{ wind_gust_speed | round(1) }} mph.
+        Secure loose objects outside. {%- elif wind_speed > 15 %} Windy
+        conditions at {{ wind_speed | round(1) }} miles per hour with gusts up
+        to {{ wind_gust_speed | round(1) }} mph. {%- elif wind_speed > 8 %}
+        There's a moderate breeze at {{ wind_speed | round(1) }} miles per hour.
+        {%- else %} Winds are light at {{ wind_speed | round(1) }} miles per
+        hour. {%- endif %}
+
+        {# Cloud coverage - only during morning and early afternoon #} {%- if
+        is_morning or (is_afternoon and hour < 15) -%}
+          {%- set cloud_coverage = state_attr('sensor.chezaggar_weather_forecast_today', 'cloud_coverage') | int -%}
+          {%- if cloud_coverage >= 90 %} Overcast skies throughout the day.
+          {%- elif cloud_coverage >= 70 %} Mostly cloudy conditions expected.
+          {%- elif cloud_coverage >= 40 %} Partly cloudy skies.
+          {%- elif cloud_coverage < 20 %} Clear skies expected.
+          {%- endif -%}
+        {%- endif %}
+
+        {# UV Index - only during daytime #} {%- if is_morning or is_afternoon
+        -%}
+          {%- set uv_index = state_attr('sensor.chezaggar_weather_forecast_today', 'uv_index') | float(0) -%}
+          {%- if uv_index >= 8 %} UV index is very high at {{ uv_index | round(1) }}, sun protection is essential.
+          {%- elif uv_index >= 6 %} UV index is high at {{ uv_index | round(1) }}, consider sun protection.
+          {%- elif uv_index >= 3 and is_morning %} UV index will reach {{ uv_index | round(1) }} today, moderate sun protection recommended.
+          {%- endif -%}
+        {%- endif %}
+
+        {# Analyze hourly forecast for rain timing today #} {%- set
+        hourly_forecast = state_attr('sensor.chezaggar_weather_hourly',
+        'forecast') -%} {%- set current_time = now() -%} {%- set today_end =
+        now().replace(hour=23, minute=59, second=59) -%} {%- set ns =
+        namespace(rain_start=none, rain_end=none, currently_raining=false,
+        will_rain_today=false) -%} {%- set rain_threshold = 0.05 -%}
+
+        {%- if hourly_forecast -%}
+          {# Check current conditions #}
+          {%- set current_condition = current_weather_state | lower -%}
+          {%- if current_condition in ['rainy', 'pouring', 'snowy', 'snowy-rainy'] -%}
+            {%- set ns.currently_raining = true -%}
+          {%- endif -%}
+          
+          {# Scan hourly forecast for today only #}
+          {%- for hour in hourly_forecast -%}
+            {%- set hour_dt = hour.datetime | as_datetime -%}
+            {%- if hour_dt -%}
+              {%- set local_hour_dt = hour_dt.astimezone() -%}
+              {%- if local_hour_dt.date() == current_time.date() and local_hour_dt > current_time -%}
+                {%- set precip = hour.precipitation | default(0) | float(0) -%}
+                {%- set precip_prob = hour.precipitation_probability | default(0) | int -%}
+                {%- set has_rain = precip > rain_threshold or precip_prob > 50 -%}
+                
+                {%- if has_rain -%}
+                  {%- set ns.will_rain_today = true -%}
+                  {%- if not ns.rain_start -%}
+                    {%- set ns.rain_start = local_hour_dt -%}
+                  {%- endif -%}
+                  {%- set ns.rain_end = local_hour_dt -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+
+        {# Today's precipitation status with timing #} {%- set today_precip =
+        state_attr('sensor.chezaggar_precipitation', 'state') | float(0) -%} {%-
+        set today_precip_prob = state_attr('sensor.chezaggar_precipitation',
+        'precipitation_probability') | int -%} {%- set days_until_rain =
+        state_attr('sensor.chezaggar_precipitation', 'days_until_rain') |
+        default(-1) | int -%}
+
+        {%- if days_until_rain == 0 and (today_precip > 0.1 or today_precip_prob
+        > 50 or ns.will_rain_today) %}
+         {# Rain expected today #}
+        {%- if ns.currently_raining -%}
+            {# Currently raining - when will it stop? #}
+            {%- if today_precip >= 0.5 -%}Heavy rain continuing
+            {%- elif today_precip >= 0.25 -%}Moderate rain continuing
+            {%- else -%}Light rain continuing
+            {%- endif -%}
+            {%- if not ns.will_rain_today %} and ending soon.
+            {%- elif ns.rain_end %} until around {{ ns.rain_end.strftime('%-I%p').lower() }}.
+            {%- else %} through the day.
+            {%- endif -%}
+          {%- else -%}
+            {# Not currently raining - when will it start? #}
+            {%- if today_precip >= 0.5 -%}Expect heavy rain
+            {%- elif today_precip >= 0.25 -%}Moderate rain expected
+            {%- elif today_precip >= 0.1 -%}Light rain expected
+            {%- elif today_precip_prob >= 70 -%}Rain is likely
+            {%- else -%}Rain is possible
+            {%- endif -%}
+            {%- if ns.rain_start %} starting around {{ ns.rain_start.strftime('%-I%p').lower() }}
+            {%- else %} today
+            {%- endif -%}
+            {%- if today_precip >= 0.1 %} with {{ today_precip | round(2) }} inches expected
+            {%- elif today_precip_prob > 50 %} with a {{ today_precip_prob }}% chance
+            {%- endif -%}.
+          {%- endif -%}
+        {%- elif is_morning %} No rain expected for today. {%- elif is_afternoon
+        or is_evening %} No rain expected for the rest of the day. {%- else %}
+        No rain expected overnight. {%- endif %}
+
+        {# Extended precipitation forecast #} {%- set friendly_forecast =
+        state_attr('sensor.chezaggar_precipitation', 'friendly_forecast') |
+        default('') -%} {%- set forecast_mentions_multiple_days = 'several days'
+        in friendly_forecast | lower or 'through' in friendly_forecast | lower
+        or 'into' in friendly_forecast | lower or 'ending' in friendly_forecast
+        | lower -%} {%- set forecast_mentions_future = 'tomorrow' in
+        friendly_forecast | lower or 'friday' in friendly_forecast | lower or
+        'saturday' in friendly_forecast | lower or 'sunday' in friendly_forecast
+        | lower or 'monday' in friendly_forecast | lower or 'tuesday' in
+        friendly_forecast | lower or 'wednesday' in friendly_forecast | lower or
+        'thursday' in friendly_forecast | lower -%}
+
+        {# Show extended forecast if it mentions future days or multi-day
+        patterns #} {%- if friendly_forecast and friendly_forecast != 'No rain
+        forecasted' and (forecast_mentions_multiple_days or
+        (forecast_mentions_future and days_until_rain != 0)) %} {{
+        friendly_forecast | capitalize }}. {%- endif %}
+
+        {# Multi-day rain outlook - only if NOT already mentioned in
+        friendly_forecast #} {%- if not forecast_mentions_multiple_days -%}
+          {%- set ns = namespace(rainy_days=[]) -%}
+          {%- set forecast = state_attr('sensor.chezaggar_weather_daily', 'forecast') -%}
+          {%- set threshold = 0.1 -%}
+
+          {%- if forecast -%}
+            {%- for day in forecast -%}
+              {%- set forecast_date = day.datetime | as_datetime | default(none) -%}
+              {%- set precipitation = day.precipitation | default(0) | float -%}
+              {%- set probability = day.precipitation_probability | default(0) | float -%}
+              {%- if forecast_date and forecast_date.date() > now().date() and (precipitation > threshold or probability > 50) -%}
+                {%- set day_name = forecast_date.strftime('%A') -%}
+                {%- if precipitation >= 0.5 -%}
+                  {%- set intensity = "heavy" -%}
+                {%- elif precipitation >= 0.25 -%}
+                  {%- set intensity = "moderate" -%}
+                {%- else -%}
+                  {%- set intensity = "light" -%}
+                {%- endif -%}
+                {%- set ns.rainy_days = ns.rainy_days + [{"day": day_name, "intensity": intensity, "amount": precipitation, "probability": probability}] -%}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+
+          {%- if ns.rainy_days | length > 1 %} Additional rain is expected on {%- for day in ns.rainy_days[1:4] %} {{ day.day }}{%- if not loop.last and loop.index < 3 %}, {%- elif not loop.last %} and {%- endif %}{%- endfor %}.
+          {%- endif -%}
+        {%- endif %}
+
+        {# Tonight's forecast - only during afternoon/evening, not at night #}
+        {%- if (is_afternoon or is_evening) and has_tonight_forecast %}
+
+        {{ tonight_state }} {%- endif %}
+
+        {# Tomorrow's preview #} {%- if is_morning or is_evening or is_night -%}
+          {%- set tomorrow = state_attr('sensor.chezaggar_weather_forecast_tomorrow', 'condition') -%}
+          {%- set tomorrow_high = state_attr('sensor.chezaggar_weather_forecast_tomorrow', 'temperature') | int -%}
+          {%- set tomorrow_low = state_attr('sensor.chezaggar_weather_forecast_tomorrow', 'templow') | int -%}
+          {%- set tomorrow_precip_prob = state_attr('sensor.chezaggar_weather_forecast_tomorrow', 'precipitation_probability') | int -%}
+          {%- set tomorrow_precip = state_attr('sensor.chezaggar_weather_forecast_tomorrow', 'precipitation') | float(0) -%}
+          {%- set forecast_mentions_tomorrow = 'tomorrow' in friendly_forecast | lower -%}
+          
+          {%- if tomorrow and tomorrow != 'unavailable' %}
+
+        {%- if is_morning -%}Tomorrow will be {{ tomorrow | lower }} with a high
+        of {{ tomorrow_high }} and low of {{ tomorrow_low }} degrees.
+            {%- else -%}Tomorrow expects {{ tomorrow | lower }} conditions with a high of {{ tomorrow_high }} and low of {{ tomorrow_low }} degrees.
+            {%- endif -%}
+            
+            {# Only add tomorrow's rain details if not already mentioned #}
+            {%- if not forecast_mentions_tomorrow and not forecast_mentions_multiple_days -%}
+              {%- if tomorrow_precip > 0.1 or tomorrow_precip_prob > 50 -%}
+                {%- if tomorrow_precip >= 0.5 %} Expect heavy rain with {{ tomorrow_precip | round(2) }} inches expected.
+                {%- elif tomorrow_precip >= 0.25 %} Moderate rain expected with around {{ tomorrow_precip | round(2) }} inches.
+                {%- elif tomorrow_precip >= 0.1 %} Light rain possible.
+                {%- elif tomorrow_precip_prob > 50 %} There's a {{ tomorrow_precip_prob }}% chance of rain.
+                {%- endif -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endif -%}
+        {%- endif %}
+
+        {# Activity recommendations based on conditions #} {%- if is_morning -%}
+          {%- set cloud_coverage = state_attr('sensor.chezaggar_weather_forecast_today', 'cloud_coverage') | int -%}
+          {%- if current_temp >= 65 and current_temp <= 75 and wind_speed < 10 and days_until_rain != 0 and cloud_coverage < 60 %}
+
+        Perfect weather for outdoor activities today!
+          {%- elif current_temp > 90 %}
+
+        Stay hydrated and limit time in direct sun today.
+          {%- elif current_temp < 32 %}
+
+        Freezing temperatures expected - watch for icy conditions.
+          {%- endif -%}
+        {%- endif %}
+
+        {%- else -%} Weather information is currently unavailable. {%- endif %}
+      response_data:
+        narrative: "{{ weather_text }}"
+        generated_at: "{{ now().isoformat() }}"
+        time_of_day: >-
+          {%- set hour = now().hour -%} {%- if hour >= 5 and hour < 12
+          -%}morning {%- elif hour >= 12 and hour < 17 -%}afternoon {%- elif
+          hour >= 17 and hour < 21 -%}evening {%- else -%}night {%- endif -%}
+  - if:
+      - condition: template
+        value_template: "{{ debug_mode }}"
+    then:
+      - data:
+          title: Weather Narrative (Debug)
+          message: "{{ weather_text }}"
+          notification_id: weather_narrative_debug
+        action: persistent_notification.create
+  - stop: Return weather narrative
+    response_variable: response_data
+alias: Get weather narrative
+description: ""
